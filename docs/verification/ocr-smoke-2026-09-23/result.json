@@ -1,0 +1,68 @@
+{
+  "kind": "synthetic_printed_jpg_smoke_test_not_handwriting",
+  "started_at": "2026-09-23T23:39:17.530918+09:00",
+  "source_commit": "d1d51e9a7009c387617f2146617a11bb5fda34bf",
+  "script_sha256": "c7271f4c676f2e4438c188622a19e3981a640ccea7664b6f504c6ba287f795b2",
+  "tesseract_version": "tesseract v5.4.0.20240606",
+  "pillow_version": "12.2.0",
+  "font_sha256": "b3658eadae55e682b5f69eb64c439c1ecc8f196c0bb8d4756d145d13bc86476a",
+  "image_sha256": "3601042514abe74da4281eb53f5b3da4c5bb76921696a0d2ec47e037c8da1c4e",
+  "model_sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+  "command": [
+    "C:\\Program Files\\Tesseract-OCR\\tesseract.EXE",
+    "docs\\verification\\ocr-smoke-2026-09-23\\synthetic-printed-answers.jpg",
+    "stdout",
+    "-l",
+    "eng",
+    "--psm",
+    "6"
+  ],
+  "ocr_process_seconds_including_startup": 0.21725439990404993,
+  "expected_lines": 8,
+  "recognized_lines": 8,
+  "exact_match_lines": 6,
+  "extra_lines": [],
+  "rows": [
+    {
+      "expected": "He gose home.",
+      "recognized": "He gose home.",
+      "exact_match": true
+    },
+    {
+      "expected": "She walk to school.",
+      "recognized": "She walk to school.",
+      "exact_match": true
+    },
+    {
+      "expected": "They walks to school.",
+      "recognized": "They walks to school.",
+      "exact_match": true
+    },
+    {
+      "expected": "He has finished his homework.",
+      "recognized": "He has finished his homework.",
+      "exact_match": true
+    },
+    {
+      "expected": "He had finished his homework.",
+      "recognized": "He had finished his homework.",
+      "exact_match": true
+    },
+    {
+      "expected": "The boy playing soccer is my brother.",
+      "recognized": "The boy playing soccer is my brother.",
+      "exact_match": true
+    },
+    {
+      "expected": "I am interesting in music.",
+      "recognized": "| am interesting in music.",
+      "exact_match": false
+    },
+    {
+      "expected": "I am interested in music.",
+      "recognized": "| am interested in music.",
+      "exact_match": false
+    }
+  ],
+  "network": "Local process invoked; no network isolation or traffic audit performed."
+}
