@@ -7,6 +7,7 @@
 - [JPG·PDF 유지, OCR 가능성, Google Docs·로컬 저장 비교](docs/input-ocr-storage-review.md)
 - [추후 편집을 위한 로컬 HTML 보고서 방향](docs/decisions/0008-editable-local-html.md)
 - [OCR 오류와 채점 영향 — 논의 초안](docs/ocr-error-discussion.md)
+- [현재 대화 원문·시각 포함 보완본](docs/conversations/2026-09-23-timestamped-session.md)
 
 - [비공개 GitHub 저장소]((비공개 기록))
 - [기존 스킬 확보 상태·기능 이식표·첫 구현 제안](docs/skill-mapping.md)
@@ -48,7 +49,7 @@
 | 항목 | 상태 |
 |---|---|
 | 프로젝트 범위·기록 원칙 문서 | 작성됨 |
-| 대화 기록 | 001~009 파일; 각 파일에 실제 수록 범위 표시 |
+| 대화 기록 | 001~009 및 현재 대화 시각 포함 보완본; 각 파일에 실제 수록 범위 표시 |
 | 기존 스킬 원문·실제 답지 | 로컬 관련 스킬 2개 확인; 원본은 미복제, 실제 답지는 없음 |
 | 정확한 기존 어법 분류표·HTML 양식 | 시작용 어법 13개·유형 9개와 배치 규격·참고 이미지 확인; 최종 체계·완성 HTML 미확인 |
 | 분류 엔진·앱·실행 파일 | 미구현 |
