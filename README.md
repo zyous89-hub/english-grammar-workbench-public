@@ -7,6 +7,7 @@
 - [JPG·PDF 유지, OCR 가능성, Google Docs·로컬 저장 비교](docs/input-ocr-storage-review.md)
 - [추후 편집을 위한 로컬 HTML 보고서 방향](docs/decisions/0008-editable-local-html.md)
 - [OCR 오류와 채점 영향 — 논의 초안](docs/ocr-error-discussion.md)
+- [두 번째 실제 페이지: 18문항·83칸 OCR 시험](docs/verification/2026-09-24-second-page-ocr.md)
 - [밑줄 전체 범위 시험: 첫 획 누락 개선, 번호 혼입 확인](docs/verification/2026-09-24-underline-ocr.md)
 - [원본 기준 변경 영역 인식: 원래 조각 9/13개 일치](docs/verification/2026-09-24-reference-difference-ocr.md)
 - [PaddleOCR 재시험: 일부 개선, 채점은 중단](docs/verification/2026-09-24-paddle-ocr.md)
