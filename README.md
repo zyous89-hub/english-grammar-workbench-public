@@ -7,6 +7,7 @@
 - [JPG·PDF 유지, OCR 가능성, Google Docs·로컬 저장 비교](docs/input-ocr-storage-review.md)
 - [추후 편집을 위한 로컬 HTML 보고서 방향](docs/decisions/0008-editable-local-html.md)
 - [OCR 오류와 채점 영향 — 논의 초안](docs/ocr-error-discussion.md)
+- [실사용 문제 1: 문제만 읽고 학생 답을 놓칠 위험](docs/student-answer-detection-risk.md)
 - [첫 OCR 실제 실행 결과: 합성 인쇄체 8줄 중 6줄 일치](docs/verification/ocr-smoke-2026-09-23/README.md)
 - [9월 28일 오전 마감·3일 개발 가능 범위](docs/deadline-and-delivery-plan.md)
 - [숙제 채점용 맞춤 OCR 가능성 검토](docs/custom-ocr-feasibility.md)
