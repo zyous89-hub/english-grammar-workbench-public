@@ -7,11 +7,18 @@
 
 이 패키지는 ChatGPT 작업 환경에서 만든 **로컬 Git 저장소**입니다. GitHub 원격 저장소는 생성되지 않았으며 업로드도 하지 않았습니다. `.git/`에 초기 이력이 포함돼 있습니다. GitHub 인증정보와 원격 주소는 포함하지 않았습니다.
 
+### Codex에서 이어서 시작하기
+
+이 폴더를 Codex의 로컬 프로젝트로 열고 [시작 지시문](CODEX_START_PROMPT.md)을 첫 메시지로 전달합니다. [인수인계 문서](CODEX_HANDOFF.md)에 프로젝트 조건, 기존 스킬 확인, GitHub 연결, 첫 작업과 검증 범위를 정리했습니다. README 한 파일만 전달하는 대신 이 저장소 전체를 사용합니다.
+
+초기 Git 이력을 유지한 인수인계 추가본입니다. 앱 구현·성능 시험·GitHub 업로드는 여전히 미실시입니다. 새 환경의 실제 인증·원격 상태는 다시 확인해야 합니다.
+
 ### 바로 읽을 문서
 
 - [요구사항: 확인된 조건과 설계 제안](docs/requirements.md)
 - [기록 시작 이전 맥락 — 요약이며 원문이 아닙니다](docs/context-before-log.md)
-- [이번 요청부터의 대화 기록](docs/conversations/2026-09-23-001.md)
+- [기록 시작 요청의 대화](docs/conversations/2026-09-23-001.md)
+- [Codex 전환 요청의 대화](docs/conversations/2026-09-23-002.md)
 - [설계 결정 기록](docs/decisions/README.md)
 - [검증 계획 — 아직 결과 없음](docs/evaluation-plan.md)
 - [대화·결정·코드·시험 연결표](docs/evidence-index.md)
