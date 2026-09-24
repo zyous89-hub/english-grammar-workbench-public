@@ -8,6 +8,7 @@
 - [JPG·PDF 유지, OCR 가능성, Google Docs·로컬 저장 비교](docs/input-ocr-storage-review.md)
 - [추후 편집을 위한 로컬 HTML 보고서 방향](docs/decisions/0008-editable-local-html.md)
 - [OCR 오류와 채점 영향 — 논의 초안](docs/ocr-error-discussion.md)
+- [원본 추가 후 객관식·서술형 영역 추출 시험](docs/verification/2026-09-24-mixed-reference-ocr.md)
 - [새 객관식·서술형 표본 OCR 시험](docs/verification/2026-09-24-mixed-page-ocr.md)
 - [필기 경계 복원·독립 실행 10회·문자 선택 근거](docs/verification/2026-09-24-adaptive-repeat-ocr.md)
 - [윗줄 인쇄 글자 제외 재시험·밑줄 문자 진단](docs/verification/2026-09-24-textline-ocr.md)
