@@ -4,6 +4,7 @@
 **현재 상태 (2026-09-23): M1 채점·기록, M2 오답 어법 구분·추가 기록을 목표로 확정했습니다. 비공개 GitHub 연결과 기존 스킬 확인을 마쳤으며 앱·성능 시험은 미구현/미실시입니다.**
 
 - [현재 제품 목표: 입력 폴더·한 세트·M1·M2](docs/product-goals.md)
+- [앱 제작 청사진: 필기 경계 추적·채점 흐름·미검증 항목](docs/app-blueprint.md)
 - [JPG·PDF 유지, OCR 가능성, Google Docs·로컬 저장 비교](docs/input-ocr-storage-review.md)
 - [추후 편집을 위한 로컬 HTML 보고서 방향](docs/decisions/0008-editable-local-html.md)
 - [OCR 오류와 채점 영향 — 논의 초안](docs/ocr-error-discussion.md)
