@@ -5,6 +5,7 @@
 
 - [현재 제품 목표: 입력 폴더·한 세트·M1·M2](docs/product-goals.md)
 - [앱 제작 청사진: 필기 경계 추적·채점 흐름·미검증 항목](docs/app-blueprint.md)
+- [유형 판단: 외부 LLM·Jev·로컬 구현 비용/데이터 비교](docs/type-classifier-options.md)
 - [JPG·PDF 유지, OCR 가능성, Google Docs·로컬 저장 비교](docs/input-ocr-storage-review.md)
 - [추후 편집을 위한 로컬 HTML 보고서 방향](docs/decisions/0008-editable-local-html.md)
 - [OCR 오류와 채점 영향 — 논의 초안](docs/ocr-error-discussion.md)
