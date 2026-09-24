@@ -1,6 +1,5 @@
 from pathlib import Path
-import sqlite3,json,hashlib,os
-from urllib.parse import quote
+import sqlite3,json,base64,mimetypes
 root=Path(__file__).resolve().parents[1];out=root/'private/ocr-history-db';db=sqlite3.connect(out/'ocr-20260924.sqlite3');db.row_factory=sqlite3.Row
 records=[];seen=set();skipped=0
 for r in db.execute("SELECT * FROM scores WHERE field IN ('rec_score','score','ocr_score') ORDER BY CASE WHEN field='rec_score' THEN 0 ELSE 1 END,id"):
@@ -17,7 +16,7 @@ for r in db.execute("SELECT * FROM scores WHERE field IN ('rec_score','score','o
  key=(r['experiment'],str(image),r['text'],r['score'])
  if key in seen:continue
  seen.add(key)
- records.append({'experiment':r['experiment'],'image':quote(os.path.relpath(image,out).replace('\\','/'),safe='/:'),'text':r['text'],'score':r['score']})
+ records.append({'experiment':r['experiment'],'image':'data:'+mimetypes.guess_type(image.name)[0]+';base64,'+base64.b64encode(image.read_bytes()).decode('ascii'),'text':r['text'],'score':r['score']})
 records.sort(key=lambda x:(0 if x['experiment']=='choice-auto-location-20260924' else 1,x['experiment']))
 payload=json.dumps(records,ensure_ascii=False).replace('<','\\u003c')
 page=r'''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>학생 필기 · OCR 결과</title><style>*{box-sizing:border-box}body{margin:0;background:#f4f5f7;color:#202a38;font-family:Malgun Gothic,Segoe UI,sans-serif}main{max-width:1150px;margin:auto;padding:32px 24px}h1{font-size:26px;margin:0 0 22px}header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}select,input,button{font:inherit;border:1px solid #cbd2dc;border-radius:7px;padding:10px;background:white}input{width:230px}table{width:100%;border-collapse:collapse;background:#fff;table-layout:fixed}th{text-align:left;padding:16px;background:#e8edf3;font-size:15px}td{border-bottom:1px solid #e3e7ed;padding:16px;vertical-align:middle}th:first-child{width:48%}th:nth-child(2){width:35%}th:last-child{width:17%}td img{max-width:100%;max-height:155px;object-fit:contain;cursor:zoom-in;display:block}td:nth-child(2){font-size:23px;word-break:break-word;white-space:pre-wrap}td:last-child{font-size:23px;font-variant-numeric:tabular-nums}footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px}.note{font-size:13px;color:#677382;margin:16px 0}dialog{max-width:94vw;max-height:94vh;border:0;border-radius:10px;padding:20px}dialog img{max-width:85vw;max-height:78vh;display:block}dialog::backdrop{background:#0009}@media(max-width:650px){main{padding:15px 8px}td,th{padding:9px}td:nth-child(2),td:last-child{font-size:17px}}</style><main><h1>학생 필기와 OCR 결과</h1><header><select id="experiment" aria-label="시험 선택"><option value="">전체 시험</option></select><input id="search" placeholder="인식한 내용 검색" aria-label="인식 내용 검색"></header><table><thead><tr><th>OCR이 본 것 · 학생 필기</th><th>OCR이 인식한 것</th><th>OCR 점수</th></tr></thead><tbody id="rows"></tbody></table><footer><button id="prev">이전</button><span id="count"></span><button id="next">다음</button></footer><p class="note">이미지를 누르면 크게 볼 수 있습니다. 점수는 모델 원점수이며 정답 확률은 아닙니다. 실제 입력 조각과 연결된 기록만 표시합니다.</p></main><dialog id="zoom"><button id="close">닫기</button><img alt="OCR이 본 학생 필기 확대"></dialog><script id="data" type="application/json">PAYLOAD</script><script>
@@ -29,5 +28,6 @@ for(const el of [exp,search])el.oninput=()=>{page=0;render()};document.getElemen
 index=out/'index.html'
 if index.exists() and not (out/'detailed-index.html').exists():(out/'detailed-index.html').write_bytes(index.read_bytes())
 index.write_text(page.replace('PAYLOAD',payload),encoding='utf-8')
+(out/'ocr-review-embedded.html').write_bytes(index.read_bytes())
 (out/'simple-view-manifest.json').write_text(json.dumps({'rows':len(records),'groups':len(set(r['experiment'] for r in records)),'unlinked_skipped':skipped,'notes':'No database mutation. Derived score-only records and whole-page arrays excluded from crop view. Repeated report copies deduplicated, not distinct experimental repeats.'},indent=2),encoding='utf-8')
 print(len(records),'image-linked records')
