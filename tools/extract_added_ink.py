@@ -1,4 +1,4 @@
-"""Create OCR inputs with added ink and protected printed circled 1..5.
+"""Create OCR inputs with added ink and protected printed circled 1..5/a..z.
 
 Unlike review routing, this whitens reference-overlapping pixels, including
 student ink at those positions, except protected choice-label boxes. Originals are retained. Exact separation at
@@ -15,6 +15,8 @@ import numpy as np
 
 from tools.ocr_reference_filter import reference_evidence
 
+PRESERVED_CHOICE_SYMBOLS = frozenset("①②③④⑤" + "".join(chr(c) for c in range(0x24D0, 0x24EA)))
+
 
 def extract_added_ink(student, reference, preserve_mask=None):
     evidence, residual = reference_evidence(student, reference)
@@ -29,7 +31,7 @@ def extract_added_ink(student, reference, preserve_mask=None):
 
 
 def choice_boxes(batch, pages):
-    """Read circled 1..5 from the local original PDF, never from the answer key."""
+    """Read circled 1..5/a..z from the local original PDF, never from the answer key."""
     import pypdfium2 as pdf
     result = {}
     for page_id, info in pages.items():
@@ -43,7 +45,7 @@ def choice_boxes(batch, pages):
         boxes = []
         for i in range(text.count_chars()):
             char = text.get_text_range(i, 1)
-            if char in ("①", "②", "③", "④", "⑤"):
+            if char in PRESERVED_CHOICE_SYMBOLS:
                 left, bottom, right, top = text.get_charbox(i)
                 boxes.append({"symbol": char, "box": [left / width * w, (height-top) / height * h,
                                                       right / width * w, (height-bottom) / height * h]})
@@ -55,14 +57,14 @@ def choice_boxes(batch, pages):
 
 
 def choice_preservation_mask(shape, crop_box, choices):
-    """Restore only circled-number rectangles (+3 input pixels for alignment)."""
+    """Restore only supported circled-label rectangles (+3 pixels for alignment)."""
     h, w = shape
     l, t, r, b = crop_box
     sx, sy = w / (r-l), h / (b-t)
     mask = np.zeros(shape, dtype=bool)
     selected = []
     for choice in choices:
-        if choice["symbol"] not in ("①", "②", "③", "④", "⑤"):
+        if choice["symbol"] not in PRESERVED_CHOICE_SYMBOLS:
             continue
         a, c, d, e = choice["box"]
         x1, y1 = max(0, math.floor((a-l)*sx)-3), max(0, math.floor((c-t)*sy)-3)
@@ -114,7 +116,7 @@ def prepare(batch, output):
                          "reference_evidence": evidence, "empty": not bool(np.any(extracted < 255)),
                          "preserved_choices": selected,
                          "requires_choice_mark_review": bool(selected),
-                         "mode": "added ink plus protected circled 1..5; selection meaning requires review"})
+                         "mode": "added ink plus protected circled 1..5/a..z; selection meaning requires review"})
     (output / "choice-preservation.json").write_text(json.dumps(choices, ensure_ascii=False, indent=2), encoding="utf-8")
     (output / "regions.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"crops": len(manifest), "empty": sum(r["empty"] for r in manifest),

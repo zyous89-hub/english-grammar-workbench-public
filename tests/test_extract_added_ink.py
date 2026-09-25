@@ -8,6 +8,25 @@ from tools.ocr_reference_filter import eligible_answer
 
 
 class AddedInkTest(unittest.TestCase):
+    def test_all_circled_lowercase_letters_are_preserved_but_plain_text_is_not(self):
+        ref = np.full((80, 180), 255, np.uint8)
+        cv2.circle(ref, (30, 35), 15, 0, 2)
+        cv2.putText(ref, "c", (23, 42), cv2.FONT_HERSHEY_SIMPLEX, .6, 0, 2)
+        cv2.putText(ref, "here", (90, 40), cv2.FONT_HERSHEY_SIMPLEX, .6, 0, 2)
+        student = ref.copy()
+        cv2.circle(student, (30, 35), 23, 80, 2)
+        for symbol in map(chr, range(0x24D0, 0x24EA)):
+            with self.subTest(symbol=symbol):
+                mask, selected = choice_preservation_mask(ref.shape, [0, 0, 180, 80],
+                    [{"symbol": symbol, "box": [14, 19, 46, 51]},
+                     {"symbol": "c", "box": [90, 20, 170, 55]}])
+                result, _ = extract_added_ink(student, ref, mask)
+                self.assertEqual([x["symbol"] for x in selected], [symbol])
+                np.testing.assert_array_equal(result[mask], student[mask])
+                self.assertTrue(np.all(result[15:60, 85:175] == 255))
+                self.assertEqual(int(result[35, 7]), 80)
+                self.assertIsNone(eligible_answer(symbol, .99, "choice_mark_review"))
+
     def test_choice_exception_preserves_number_and_crossing_mark(self):
         ref = np.full((100, 200), 255, np.uint8)
         cv2.circle(ref, (40, 50), 10, 0, 2)
