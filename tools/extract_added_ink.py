@@ -26,7 +26,8 @@ def prepare(batch, output):
     load = lambda name: json.loads((batch / name).read_text(encoding="utf-8"))
     questions = {q["id"]: q for q in load("questions.json")}
     pages = {p["id"]: p for p in load("pages.json")}
-    rows = load("results.json")
+    # Fresh extraction must not require previous OCR results.
+    rows = load("regions.json")
     output.mkdir(parents=True, exist_ok=False)
     (output / "crops").mkdir()
     originals, manifest = {}, []
@@ -41,7 +42,7 @@ def prepare(batch, output):
             originals[page_id] = cv2.imread(str(reference_path), 0)
         source = Path(row["input"])
         source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-        if source_hash != row["input_sha256"]:
+        if row.get("input_sha256") and source_hash != row["input_sha256"]:
             raise ValueError(f"Source changed: {row['id']}")
         student = cv2.imread(str(source), 0)[10:-10, 10:-10]
         l, t, r, b = row["box"]
