@@ -7,6 +7,24 @@ import cv2
 import numpy as np
 
 
+def broad_ink_mask(gray):
+    """Development estimate, not a guarantee of complete handwriting segmentation.
+
+    On white crops include light gray pixels. On shaded crops subtract the
+    estimated shade, using a smaller contrast margin than the strict gate.
+    """
+    smooth = cv2.GaussianBlur(gray, (3, 3), 0)
+    area = smooth < 245
+    values = smooth[area]
+    median = float(np.median(values)) if len(values) else 255.0
+    shaded = len(values) >= 150 and area.mean() >= 0.12 and 150 <= median <= 235
+    cutoff = median - 5 if shaded else 245.0
+    mask = smooth < cutoff
+    return mask, {"cutoff": cutoff, "shaded_estimate": bool(shaded),
+                  "ink_pixels": int(mask.sum()), "total_pixels": int(gray.size),
+                  "ink_fraction": float(mask.mean())}
+
+
 def suppress_flat_background(gray, max_dark_fraction=0.0):
     """Optional experimental ink allowance; fraction uses the full padded crop."""
     if not 0 <= max_dark_fraction <= 1:
