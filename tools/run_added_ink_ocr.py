@@ -58,6 +58,9 @@ def run(inputs, source, output, model_dir):
                                         alignment_ok=True)
             excluded = flat["ignored"] or shade["ignored"] or row["empty"] or ref_route in (
                 "reference_print", "reference_print_background", "mixed_shade_background")
+            protected_choice = row.get("requires_choice_mark_review", False)
+            if protected_choice:
+                excluded = False  # Keep choice/mark evidence for its separate review path.
             # Recognize every nonempty new image, even excluded audit records.
             # Display exclusion and OCR execution are distinct facts.
             executed = not row["empty"]
@@ -67,7 +70,7 @@ def run(inputs, source, output, model_dir):
                 text, score = answer["rec_text"], float(answer["rec_score"])
             result = {**row, "text": text, "score": score, "ocr_executed": executed,
                       "ignored": not executed, "answer_excluded": bool(excluded),
-                      "route": "excluded_after_extraction" if excluded else "student_candidate",
+                      "route": "choice_mark_review" if protected_choice else "excluded_after_extraction" if excluded else "student_candidate",
                       "exclusion_evidence": {"flat": flat, "shade": shade, "reference_route": ref_route},
                       "recognition_origin": "fresh OCR on reference-overlap-removed image",
                       "semantic_annotation": None}
