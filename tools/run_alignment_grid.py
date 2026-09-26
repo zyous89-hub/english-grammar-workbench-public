@@ -31,6 +31,9 @@ def save(p, value):
 
 def report(output, results):
     manifest = read(output/"manifest.json")
+    if manifest['config'].get('transcription'):
+        from tools.evaluate_grid_transcription import report as transcription_report
+        return transcription_report(output, manifest, results)
     cfg = manifest["config"]
     count = len(manifest["combinations"])
     page_number = cfg.get("page", 18)
@@ -51,13 +54,13 @@ def report(output, results):
     report_path.write_text(report_path.read_text(encoding='utf-8').replace('PAGE_NUMBER', str(page_number)).replace('GRID_COUNT', str(count)), encoding='utf-8')
 
 
-def run(config_path, output, ransac_five=False):
-    grid = combinations(ransac_five)
+def run(config_path, output, ransac_five=False, all_settings=False):
+    grid = combinations() + combinations(True) if all_settings else combinations(ransac_five)
     cfg = read(config_path)
     expected = read(cfg['previous'])
     expected_ids = {q['id'] for q in expected}
     assert expected_ids and len(expected_ids) == len(expected)
-    assert len({q['page'] for q in expected}) == 1
+    cfg['pages'] = sorted({q['page'] for q in expected})
     cfg['page'] = expected[0]['page']
     output.mkdir(parents=True, exist_ok=False)
     env = dict(os.environ, PYTHONUTF8='1', OMP_NUM_THREADS='4', MKL_NUM_THREADS='4',
@@ -66,6 +69,8 @@ def run(config_path, output, ransac_five=False):
     tracked += sorted(Path(cfg['student_dir']).glob('*.jpg'))
     tracked += [Path('tools')/n for n in ('prepare_ocr_sources.py', 'ocr_source_inputs.py',
         'extract_added_ink.py', 'run_added_ink_ocr.py', 'grade_added_ink.py', 'ocr_reference_filter.py', 'ocr_background_filter.py')]
+    if cfg.get('transcription'):
+        tracked += [Path(cfg['transcription']), Path('tools/evaluate_grid_transcription.py')]
     hashes = {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in tracked}
     save(output/'manifest.json', dict(config=cfg, combinations=grid, hashes=hashes,
          thread_environment_limit=4, paddle_cpu_threads='unchanged library default (10)',
@@ -104,13 +109,17 @@ def run(config_path, output, ransac_five=False):
                 if stage == 'prepare':
                     qs = read(dest/'source/questions.json')
                     assert len(qs) == len(expected_ids) and {q['id'] for q in qs} == expected_ids
-                    assert {q['page'] for q in qs} == {cfg['page']}
-                    assert len(read(dest/'source/pages.json')) == 1
+                    assert {q['page'] for q in qs} == set(cfg['pages'])
+                    assert len(read(dest/'source/pages.json')) == len(cfg['pages'])
             evaluation = read(dest/'ocr/evaluation.json')
             summary = read(dest/'ocr/comparison.json')
             result.update(status='completed', counts=summary['semantic']['counts'], evaluation=evaluation,
                 ocr_calls=summary['new_ocr_calls'], regions=summary['regions'],
-                alignment=read(dest/'source/pages.json')[0])
+                alignment=read(dest/'source/pages.json')[0], alignments=read(dest/'source/pages.json'))
+            if cfg.get('transcription'):
+                from tools.evaluate_grid_transcription import evaluate
+                result['transcription'] = evaluate(read(cfg['transcription']), evaluation, read(dest/'ocr/results.json'))
+                save(dest/'ocr/transcription-evaluation.json', result['transcription'])
         except Exception as exc:
             result.update(status='failed', error=str(exc))
         result['seconds'] = time.perf_counter()-start
@@ -128,6 +137,7 @@ if __name__ == '__main__':
     parser.add_argument('output', nargs='?', type=Path)
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--ransac-five', action='store_true', help='Run only the nine RANSAC 5 combinations')
+    parser.add_argument('--all-settings', action='store_true')
     args = parser.parse_args()
     if args.check:
         grid = combinations()
@@ -146,6 +156,6 @@ if __name__ == '__main__':
                 assert f'<h1>{page}쪽 · 9개' in (root/'report.html').read_text(encoding='utf-8')
         print('PASS: 27 original and 9 RANSAC-5 combinations, page/count headings')
     elif args.config and args.output:
-        run(args.config, args.output, args.ransac_five)
+        run(args.config, args.output, args.ransac_five, args.all_settings)
     else:
         parser.error('config and output are required')
