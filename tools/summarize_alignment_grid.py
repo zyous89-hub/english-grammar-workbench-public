@@ -6,15 +6,17 @@ from pathlib import Path
 import statistics
 import sys
 
-from tools.run_alignment_grid import combinations, read, save, report
+from tools.run_alignment_grid import read, save, report
 
 
 def summarize(root):
     runs = read(root/'results.json')
-    cfg = read(root/'manifest.json')['config']
+    manifest = read(root/'manifest.json')
+    cfg = manifest['config']
+    expected_grid = {tuple(c) for c in manifest['combinations']}
     expected_ids = {q['id'] for q in read(cfg['previous'])}
-    assert len(runs) == 27
-    assert {(r['features'],r['ratio'],r['ransac']) for r in runs} == set(combinations())
+    assert len(runs) == len(expected_grid)
+    assert {(r['features'],r['ratio'],r['ransac']) for r in runs} == expected_grid
     metrics = []
     signatures = {}
     for r in runs:
@@ -34,17 +36,17 @@ def summarize(root):
             inliers=r['alignment']['inliers'],median_error=r['alignment']['median_error'],
             crops=len(rows),ocr_calls=r['ocr_calls'],median_score=statistics.median(scores) if scores else None,
             total_seconds=r['seconds'],stages=r['stages'],counts=r['counts']))
-    summary = dict(attempts=len(runs),completed=len(metrics),failed=27-len(metrics),
+    summary = dict(attempts=len(runs),completed=len(metrics),failed=len(runs)-len(metrics),
         total_seconds=sum(r['seconds'] for r in runs),ocr_calls=sum(m['ocr_calls'] for m in metrics),
         grading_groups=list(signatures.values()),metrics=metrics,
         limitations=['One fixed development page; no independent accuracy labels.',
           'OCR score and inlier error are diagnostics, not accuracy rankings.',
-          'Baseline ran first; initialization/cache effects may affect timing.',
+          'First run initialization/cache effects may affect timing.',
           'Thread environment set to 4; Paddle inference default cpu_threads=10 was not overridden.',
           'No peak-memory measurement; one combination at a time.'])
     save(root/'summary.json', summary)
     report(root,runs)
-    table='<h2>정렬·OCR 진단값</h2><p>이 값만으로 최적 조합을 고르지 않습니다. 특히 RANSAC 오차가 다르면 정상 매칭으로 세는 기준도 다릅니다. 기준 조합은 최초 실행이라 시작 비용의 영향을 받을 수 있습니다.</p><table><tr><th>조합</th><th>정상 매칭</th><th>정렬 중앙 오차</th><th>조각</th><th>OCR 중앙 점수</th><th>준비 초</th><th>OCR 단계 초</th></tr>'
+    table='<h2>정렬·OCR 진단값</h2><p>이 값만으로 최적 조합을 고르지 않습니다. 특히 RANSAC 오차가 다르면 정상 매칭으로 세는 기준도 다릅니다. 최초 실행 조합은 시작 비용의 영향을 받을 수 있습니다.</p><table><tr><th>조합</th><th>정상 매칭</th><th>정렬 중앙 오차</th><th>조각</th><th>OCR 중앙 점수</th><th>준비 초</th><th>OCR 단계 초</th></tr>'
     for m in sorted(metrics,key=lambda x:(x['features'],x['ratio'],x['ransac'])):
         table += '<tr>'+''.join(f'<td>{html.escape(str(v))}</td>' for v in [m['id'],m['inliers'],round(m['median_error'],4),m['crops'],round(m['median_score'],4) if m['median_score'] is not None else '',round(m['stages']['prepare']['seconds'],2),round(m['stages']['ocr']['seconds'],2)])+'</tr>'
     page=root/'report.html'

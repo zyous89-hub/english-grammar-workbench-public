@@ -1,4 +1,4 @@
-"""Sequential 27-combination experiment. Each stage runs once; failures are retained."""
+"""Sequential alignment experiment. Each stage runs once; failures are retained."""
 import argparse
 import hashlib
 import html
@@ -12,7 +12,9 @@ import sys
 import time
 
 
-def combinations():
+def combinations(ransac_five=False):
+    if ransac_five:
+        return [(f, m, 5) for f in (5000, 6000, 7000) for m in (0.6, 0.7, 0.8)]
     items = list(itertools.product((5000, 6000, 7000), (0.6, 0.7, 0.8), (2, 3, 4)))
     items.remove((6000, 0.7, 3))
     random.Random(20260926).shuffle(items)
@@ -28,7 +30,9 @@ def save(p, value):
 
 
 def report(output, results):
-    cfg = read(output/"manifest.json")["config"]
+    manifest = read(output/"manifest.json")
+    cfg = manifest["config"]
+    count = len(manifest["combinations"])
     page_number = cfg.get("page", 18)
     rows = []
     for r in results:
@@ -39,15 +43,16 @@ def report(output, results):
             [r['order'], r['features'], r['ratio'], r['ransac'], '완료' if r['status']=='completed' else '실패',
              counts.get('정답', 0), counts.get('오답', 0), counts.get('보류', 0),
              r.get('ocr_calls', ''), round(r['seconds'], 2), selections]) + f'<td>{link}</td></tr>')
-    (output/'report.html').write_text('''<!doctype html><html lang="ko"><meta charset="utf-8"><title>27조합 순차 실험</title>
+    (output/'report.html').write_text('''<!doctype html><html lang="ko"><meta charset="utf-8"><title>GRID_COUNT조합 순차 실험</title>
 <style>body{font:16px/1.6 "Malgun Gothic",sans-serif;margin:25px}table{border-collapse:collapse}td,th{border:1px solid #bbc;padding:7px}th{background:#eef3f8}a{color:#156}</style>
-<h1>PAGE_NUMBER쪽 · 27개 정렬 조합 순차 실험</h1><p>각 조합 1회. 076 삭제·보존 규칙을 고정했습니다. 정답/오답/보류는 자동 판정이며 실제 OCR 정확도가 아닙니다. 학생 답의 교사 확정 라벨은 없습니다. 미완료 조합은 오류 로그를 보존합니다.</p>
+<h1>PAGE_NUMBER쪽 · GRID_COUNT개 정렬 조합 순차 실험</h1><p>각 조합 1회. 076 삭제·보존 규칙을 고정했습니다. 정답/오답/보류는 자동 판정이며 실제 OCR 정확도가 아닙니다. 학생 답의 교사 확정 라벨은 없습니다. 미완료 조합은 오류 로그를 보존합니다.</p>
 <table><tr><th>순서</th><th>특징점</th><th>비율</th><th>RANSAC</th><th>실행 상태</th><th>정답</th><th>오답</th><th>보류</th><th>OCR 수</th><th>총 초</th><th>문항별 채택 답</th><th>검토</th></tr>'''+''.join(rows)+'</table></html>', encoding='utf-8')
     report_path = output/'report.html'
-    report_path.write_text(report_path.read_text(encoding='utf-8').replace('PAGE_NUMBER', str(page_number)), encoding='utf-8')
+    report_path.write_text(report_path.read_text(encoding='utf-8').replace('PAGE_NUMBER', str(page_number)).replace('GRID_COUNT', str(count)), encoding='utf-8')
 
 
-def run(config_path, output):
+def run(config_path, output, ransac_five=False):
+    grid = combinations(ransac_five)
     cfg = read(config_path)
     expected = read(cfg['previous'])
     expected_ids = {q['id'] for q in expected}
@@ -62,18 +67,18 @@ def run(config_path, output):
     tracked += [Path('tools')/n for n in ('prepare_ocr_sources.py', 'ocr_source_inputs.py',
         'extract_added_ink.py', 'run_added_ink_ocr.py', 'grade_added_ink.py', 'ocr_reference_filter.py', 'ocr_background_filter.py')]
     hashes = {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in tracked}
-    save(output/'manifest.json', dict(config=cfg, combinations=combinations(), hashes=hashes,
+    save(output/'manifest.json', dict(config=cfg, combinations=grid, hashes=hashes,
          thread_environment_limit=4, paddle_cpu_threads='unchanged library default (10)',
          policy='one attempt per combination, sequential blocking subprocesses, no retry'))
     results = []
-    for order, (features, ratio, ransac) in enumerate(combinations(), 1):
+    for order, (features, ratio, ransac) in enumerate(grid, 1):
         ident = f'f{features}-m{ratio:.1f}-r{ransac}'
         dest = output/ident
         dest.mkdir()
         result = dict(id=ident, order=order, features=features, ratio=ratio, ransac=ransac,
                       status='running', stages={})
         start = time.perf_counter()
-        print(f'START {order}/27 {ident}', flush=True)
+        print(f'START {order}/{len(grid)} {ident}', flush=True)
         try:
             for name, digest in hashes.items():
                 if hashlib.sha256(Path(name).read_bytes()).hexdigest() != digest:
@@ -113,8 +118,8 @@ def run(config_path, output):
         save(dest/'run.json', result)
         save(output/'results.json', results)
         report(output, results)
-        print(f'END {order}/27 {ident}: {result["status"]} {result["seconds"]:.1f}s {result.get("counts", result.get("error"))}', flush=True)
-    assert len(results) == 27 and len({r['id'] for r in results}) == 27
+        print(f'END {order}/{len(grid)} {ident}: {result["status"]} {result["seconds"]:.1f}s {result.get("counts", result.get("error"))}', flush=True)
+    assert len(results) == len(grid) and len({r['id'] for r in results}) == len(grid)
 
 
 if __name__ == '__main__':
@@ -122,21 +127,25 @@ if __name__ == '__main__':
     parser.add_argument('config', nargs='?', type=Path)
     parser.add_argument('output', nargs='?', type=Path)
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('--ransac-five', action='store_true', help='Run only the nine RANSAC 5 combinations')
     args = parser.parse_args()
     if args.check:
         grid = combinations()
         assert len(grid) == len(set(grid)) == 27
         assert grid[0] == (6000, .7, 3)
         assert set(grid) == set(itertools.product((5000,6000,7000),(.6,.7,.8),(2,3,4)))
+        extra = combinations(True)
+        assert len(extra) == len(set(extra)) == 9
+        assert set(extra) == set(itertools.product((5000,6000,7000),(.6,.7,.8),(5,)))
         from tempfile import TemporaryDirectory
         for page in (4, 18):
             with TemporaryDirectory() as directory:
                 root = Path(directory)
-                save(root/'manifest.json', {'config': {'page': page}})
+                save(root/'manifest.json', {'config': {'page': page}, 'combinations': extra})
                 report(root, [])
-                assert f'<h1>{page}쪽' in (root/'report.html').read_text(encoding='utf-8')
-        print('PASS: 27 unique combinations, baseline first, page 4/18 headings')
+                assert f'<h1>{page}쪽 · 9개' in (root/'report.html').read_text(encoding='utf-8')
+        print('PASS: 27 original and 9 RANSAC-5 combinations, page/count headings')
     elif args.config and args.output:
-        run(args.config, args.output)
+        run(args.config, args.output, args.ransac_five)
     else:
         parser.error('config and output are required')
