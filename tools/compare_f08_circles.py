@@ -88,7 +88,7 @@ def exemptions(regions, evidence, mode):
     return accepted
 
 
-def run(source, pages, transcription, output, selected_pages=None):
+def run(source, pages, transcription, output, selected_pages=None, selected_questions=None):
     if output.exists():
         raise ValueError('Use a new output directory')
     tracked={}
@@ -103,6 +103,11 @@ def run(source, pages, transcription, output, selected_pages=None):
         questions=[q for q in saved['questions'] if q['page'] in selected_pages]
         ids={q['id'] for q in questions}
         saved={**saved,'questions':questions,'regions':[r for r in saved['regions'] if r['question'] in ids]}
+    if selected_questions is not None:
+        if not selected_questions or not set(selected_questions) <= {q['id'] for q in saved['questions']}:
+            raise ValueError('Requested questions are missing from the selected source')
+        saved={**saved,'questions':[q for q in saved['questions'] if q['id'] in selected_questions],
+               'regions':[r for r in saved['regions'] if r['question'] in selected_questions]}
     scope=sorted({q['page'] for q in saved['questions']})
     baseline=dict(Counter(q['comparison']['status'] for q in saved['questions']))
     alignment={p['page']:p for p in read(pages)}
@@ -184,4 +189,5 @@ if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('source',type=Path);p.add_argument('pages',type=Path)
     p.add_argument('transcription',type=Path);p.add_argument('output',type=Path)
     p.add_argument('--selected-pages',type=int,nargs='+')
-    a=p.parse_args();run(a.source,a.pages,a.transcription,a.output,a.selected_pages)
+    p.add_argument('--selected-questions',nargs='+')
+    a=p.parse_args();run(a.source,a.pages,a.transcription,a.output,a.selected_pages,a.selected_questions)
