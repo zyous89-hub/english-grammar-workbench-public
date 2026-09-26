@@ -31,6 +31,14 @@ class SourceInputsTest(unittest.TestCase):
         self.assertEqual(args.answer_key, self.root / "key.pdf")
         self.assertEqual(configs, [{"id": "X"}])
         self.assertFalse(args.output.exists())
+        self.assertEqual((args.features, args.match_ratio, args.ransac_error), (6000, .7, 3))
+
+    def test_grid_settings_and_invalid_values(self):
+        args, _ = read_inputs(self.argv + ['--features', '7000', '--match-ratio', '.8', '--ransac-error', '4'])
+        self.assertEqual((args.features, args.match_ratio, args.ransac_error), (7000, .8, 4))
+        for flag, value in (('--features', '0'), ('--match-ratio', '1'), ('--ransac-error', '0')):
+            with self.subTest(flag=flag), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                read_inputs(self.argv + [flag, value])
 
     def test_missing_explicit_original_does_not_fall_back_to_other_pdf(self):
         (self.root / "chosen.pdf").unlink()

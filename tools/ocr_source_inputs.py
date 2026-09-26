@@ -15,7 +15,12 @@ def read_inputs(argv=None):
                         help="기존 페이지/문항 매핑 JSON; 아직 자동 매핑하지 않음")
     parser.add_argument("--set-id", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--features", type=int, default=6000)
+    parser.add_argument("--match-ratio", type=float, default=0.7)
+    parser.add_argument("--ransac-error", type=float, default=3)
     args = parser.parse_args(argv)
+    if args.features <= 0 or not 0 < args.match_ratio < 1 or args.ransac_error <= 0:
+        parser.error("정렬 매개변수 범위를 확인하세요")
     for name in ("student_dir", "original", "answer_key", "config", "output"):
         setattr(args, name, getattr(args, name).resolve())
     if not args.student_dir.is_dir():

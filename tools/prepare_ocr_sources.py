@@ -62,7 +62,7 @@ def main():
      ids=[f'{sid}-p{h["pattern"]}-s{h["part"]}-q{h["question"]}' for t in templates.values() if t['set']==sid for h in t['questions']];keyids=[k for k in keys if k.startswith(sid+'-')]
      assert set(ids)==set(keyids),(sid,'coverage mismatch',set(keyids)-set(ids),set(ids)-set(keyids))
     save('config.json',configs);save('templates.json',templates);save('keys.json',keys)
-    rows=[];questions=[];pages=[];sift=cv2.SIFT_create(nfeatures=6000)
+    rows=[];questions=[];pages=[];sift=cv2.SIFT_create(nfeatures=args.features)
     for cfg in configs:
      for f in sorted(f for f in args.student_dir.iterdir() if f.suffix.lower()=='.jpg'):
       if cfg.get('prefix') and not f.name.startswith(cfg['prefix']):continue
@@ -71,7 +71,7 @@ def main():
       if not cfg['scan_first']<=n<=cfg['scan_last']:continue
       if cfg.get('prefix') and not f.name.startswith(cfg['prefix']):continue
       kind=cfg['kind'];page=n+cfg['page_offset'];sid=f'{cfg["id"]}-{page:02}';temp=templates[sid];copy=P/'sources'/f.name;shutil.copy2(f,copy);sources.append({'role':'student','set':cfg['id'],'source':str(f),'copy':str(copy),'sha256':sha(f)})
-      original=cv2.imread(str(P/'pages'/f'{sid}-original.png'),0);native=cv2.imdecode(np.fromfile(str(f),np.uint8),0);small=cv2.resize(native,(W,H));ka,da=sift.detectAndCompute(original,None);kb,db=sift.detectAndCompute(small,None);good=[m for m,n2 in cv2.BFMatcher().knnMatch(da,db,k=2) if m.distance<.7*n2.distance];a=np.float32([ka[m.queryIdx].pt for m in good]);b=np.float32([kb[m.trainIdx].pt for m in good]);M,ok=cv2.findHomography(b,a,cv2.RANSAC,3)
+      original=cv2.imread(str(P/'pages'/f'{sid}-original.png'),0);native=cv2.imdecode(np.fromfile(str(f),np.uint8),0);small=cv2.resize(native,(W,H));ka,da=sift.detectAndCompute(original,None);kb,db=sift.detectAndCompute(small,None);good=[m for m,n2 in cv2.BFMatcher().knnMatch(da,db,k=2) if m.distance<args.match_ratio*n2.distance];a=np.float32([ka[m.queryIdx].pt for m in good]);b=np.float32([kb[m.trainIdx].pt for m in good]);M,ok=cv2.findHomography(b,a,cv2.RANSAC,args.ransac_error)
       assert M is not None and ok.sum()>30,(f,'alignment failed')
       aligned=cv2.warpPerspective(small,M,(W,H),borderValue=255);SX=native.shape[1]/W;SY=native.shape[0]/H;high=cv2.warpPerspective(native,np.diag([SX,SY,1])@M@np.diag([1/SX,1/SY,1]),(native.shape[1],native.shape[0]),borderValue=255);cv2.imwrite(str(P/'pages'/f'{sid}-aligned.jpg'),aligned)
       ink=cv2.adaptiveThreshold(aligned,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY_INV,31,14);printed=cv2.dilate((original<195).astype(np.uint8),np.ones((3,3),np.uint8));diff=((ink>0)&(printed==0)).astype(np.uint8)*255;_,lab,stats,_=cv2.connectedComponentsWithStats(diff);clean=np.zeros_like(diff)
