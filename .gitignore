@@ -8,6 +8,8 @@ id_rsa*
 /private/
 /data/private/
 /data/raw/
+/data/ocr-review-C/
+/.playwright-cli/
 
 # Dependencies and build outputs
 node_modules/
