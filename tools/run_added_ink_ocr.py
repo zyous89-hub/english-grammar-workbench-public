@@ -61,9 +61,8 @@ def run(inputs, source, output, model_dir):
             protected_choice = row.get("requires_choice_mark_review", False)
             if protected_choice:
                 excluded = False  # Keep choice/mark evidence for its separate review path.
-            # Recognize every nonempty new image, even excluded audit records.
-            # Display exclusion and OCR execution are distinct facts.
-            executed = not row["empty"]
+            # E02: stage-1 exclusions retain their images/evidence without an OCR call.
+            executed = not row["empty"] and not excluded
             text, score = "", None
             if executed:
                 answer = list(model.predict([str(image)], batch_size=1))[0]
@@ -83,6 +82,7 @@ def run(inputs, source, output, model_dir):
     for name, value in [("results.json", results), ("timing.json", {
             "seconds": time.perf_counter() - start, "regions": len(rows),
             "ocr_executed": sum(r["ocr_executed"] for r in results),
+            "stage1_skipped": sum(not r["ocr_executed"] for r in results),
             "answer_excluded": sum(r["answer_excluded"] for r in results),
             "source": str(source), "inputs": str(inputs), "cached_ocr_reused": 0,
             "network_scope": "Python socket connect and DNS audit hook; not OS-wide proof"})]:

@@ -308,7 +308,8 @@ def build(root, output, *, source=None, transcription=None, selected_pages=None)
                    pages=sorted({q['page'] for q in all_questions}),
                    source_note=(provenance.get('note', '075 OCR 재사용: 기준 설정 6000 / 0.7 / 3. 076의 동그라미 알파벳 보존 적용 전입니다.') if source else '101 OCR 재사용'),
                    rule_basis=['conversations/2026-09-26-107.md', 'decisions/0014-b-stage-freeze.md', 'decisions/0015-cg-submission-plan.md', 'decisions/0016-disable-f08a.md'],
-                   method='119 post-run simulation: F08(a) removed, F08(b) retained. Labels and manual ROIs are evaluation only. D11 conditional decision awaits 134-question audit; F12 optional not applied. E02 does not rewrite historical execution.',
+                   method=(provenance.get('method') if source and provenance.get('method') else '119 post-run simulation: F08(a) removed, F08(b) retained. Labels and manual ROIs are evaluation only. D11 conditional decision awaits 134-question audit; F12 optional not applied. E02 does not rewrite historical execution.'),
+                   recognition_provenance=provenance if source else {},
                    source_sha256=hashes)
     (output/'classification.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
     template = Path(__file__).with_name('templates')/'stage-classification.html'
