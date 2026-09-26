@@ -22,13 +22,15 @@ def radius(x, y, ellipse):
     return np.sqrt((2*u/a)**2+(2*v/b)**2)
 
 
-def circles(gray):
+def circles(gray, *, reject_boxes=False):
     """Frozen experimental thresholds; broken/clipped rings can be missed."""
     mask = np.uint8(gray < 195)*255
     contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     found = []
     for contour in contours:
         if len(contour) < 20:
+            continue
+        if reject_boxes and len(cv2.approxPolyDP(contour,.025*cv2.arcLength(contour,True),True))<=4:
             continue
         ellipse = cv2.fitEllipse(contour)
         (cx, cy), (a, b), angle = ellipse
@@ -42,6 +44,29 @@ def circles(gray):
         errors = np.abs(radius(pts[:,0], pts[:,1], ellipse)-1)
         if float(errors.mean()) <= .10 and float(np.quantile(errors,.9)) <= .20:
             found.append(dict(ellipse=ellipse, mean_error=float(errors.mean())))
+    return found
+
+
+def connected_circles(gray):
+    """Fallback for rings joined to a box; keep the original detector unchanged."""
+    found=circles(gray,reject_boxes=True)
+    if found:
+        return found
+    size=min(gray.shape)
+    proposed=cv2.HoughCircles(cv2.GaussianBlur(gray,(5,5),0),cv2.HOUGH_GRADIENT,
+                             1,size*.2,param1=100,param2=25,
+                             minRadius=max(10,int(size*.2)),maxRadius=int(size*.48))
+    if proposed is None:
+        return []
+    yy,xx=np.where(gray<195)
+    for cx,cy,r in proposed[0]:
+        near=np.abs(np.hypot(xx-cx,yy-cy)-r)<=max(2.5,.1*r)
+        angles=np.mod(np.arctan2(yy[near]-cy,xx[near]-cx),2*np.pi)
+        bins=set((angles*36/(2*np.pi)).astype(int).tolist())
+        # ponytail: angular ink support, not semantic recognition of selection/cancellation.
+        if len(bins)>=27:
+            found.append(dict(ellipse=((float(cx),float(cy)),(float(2*r),float(2*r)),0),
+                              method='connected_arc',angular_coverage=len(bins)/36))
     return found
 
 
@@ -88,7 +113,8 @@ def exemptions(regions, evidence, mode):
     return accepted
 
 
-def run(source, pages, transcription, output, selected_pages=None, selected_questions=None):
+def run(source, pages, transcription, output, selected_pages=None, selected_questions=None, circle_detector='contour'):
+    detector={'contour':circles,'connected-arcs':connected_circles}[circle_detector]
     if output.exists():
         raise ValueError('Use a new output directory')
     tracked={}
@@ -126,7 +152,7 @@ def run(source, pages, transcription, output, selected_pages=None, selected_ques
             image=cv2.imdecode(np.frombuffer(raw,np.uint8),cv2.IMREAD_GRAYSCALE)
             if image is None or min(image.shape)<=20:
                 raise ValueError(f'Invalid crop: {path}')
-            gray=image[10:-10,10:-10]; detected=circles(gray)
+            gray=image[10:-10,10:-10]; detected=detector(gray)
             evidence[r['id']]=dict(circles=detected,duplicates=[c['id'] for c in candidates if duplicate(r,c,gray,detected)])
     output.mkdir(parents=True)
     summaries={}; all_rows={}
@@ -143,7 +169,7 @@ def run(source, pages, transcription, output, selected_pages=None, selected_ques
                              comparison=comparison,exemptions=allowed,changed=review!=q['review'],
                              context=os.path.relpath((source.parent/q['context']).resolve(),output).replace('\\','/')))
         summary=dict(questions=len(rows),counts=dict(Counter(q['comparison']['status'] for q in rows)),
-                     pages=scope,regions=len(regions),baseline=baseline,
+                     pages=scope,regions=len(regions),baseline=baseline,circle_detector=circle_detector,
                      by_page={str(page):dict(questions=sum(q['page']==page for q in rows),
                          baseline=dict(Counter(q['comparison']['status'] for q in saved['questions'] if q['page']==page)),
                          counts=dict(Counter(q['comparison']['status'] for q in rows if q['page']==page))) for page in scope},
@@ -167,7 +193,7 @@ def report(path,mode,summary,rows):
     titles={'broad':'사용자안 · 동그라미 조각 예외','duplicate':'제안안 · 숫자와 중복된 동그라미 조각만 예외','compare':'F08(b) 두 조건 비교'}
     esc=lambda s:html.escape(str(s))
     common=summary['broad'] if mode=='compare' else summary
-    content=''
+    content='<p>원 검출: '+('연결된 표시 보조 검출 적용' if common['circle_detector']=='connected-arcs' else '기존 윤곽 검출')+'</p>'
     if mode=='compare':
         for key,s in summary.items():
             content+=f'<h2><a href="{key}.html">{titles[key]}</a></h2><p>전사 일치 {s["counts"].get("전사 일치",0)} · 보류 {s["counts"].get("보류",0)} · 전사 불일치 {s["counts"].get("전사 불일치",0)} · 오답→정답 {s["false_correct"]}</p>'
@@ -175,7 +201,7 @@ def report(path,mode,summary,rows):
                 content+=f'<p>{page}쪽 · {counts["questions"]}문항: 전사 일치 {counts["counts"].get("전사 일치",0)}, 보류 {counts["counts"].get("보류",0)} (기준 전사 일치 {counts["baseline"].get("전사 일치",0)}, 보류 {counts["baseline"].get("보류",0)})</p>'
         content+=f'<p>각 링크에서 전체 {common["questions"]}문항과 변경 문항의 원래 문항 이미지를 확인할 수 있습니다.</p>'
     else:
-        content=f'<p><a href="report.html">두 조건 비교로 돌아가기</a></p><p>전사 일치 {summary["counts"].get("전사 일치",0)} / 보류 {summary["counts"].get("보류",0)} / 변경 {len(summary["changed"])}문항</p><label><input id="changed" type="checkbox"> 변경 문항만 보기</label>'
+        content+=f'<p><a href="report.html">두 조건 비교로 돌아가기</a></p><p>전사 일치 {summary["counts"].get("전사 일치",0)} / 보류 {summary["counts"].get("보류",0)} / 변경 {len(summary["changed"])}문항</p><label><input id="changed" type="checkbox"> 변경 문항만 보기</label>'
         for q in rows:
             v=q['review']; marks='변경' if q['changed'] else '유지'
             content+=f'<details data-changed="{int(q["changed"])}"><summary>{esc(q["id"])} · {marks} · {esc(q["comparison"]["status"])} · 채점: {esc(v["status"])}</summary><p>전사: {esc(q["expected"])} / 자동 확정: {esc(v["selection"])} / 후보: {esc(v["proposed_selection"])}</p><p>예외 조각: {esc(q["exemptions"])} / 남은 보류 사유: {esc([x["rule"]+":"+x["code"] for x in v["reasons"]])}</p><img loading="lazy" src="{esc(q["context"])}" alt="{esc(q["id"])} 원래 문항"></details>'
@@ -190,4 +216,5 @@ if __name__=='__main__':
     p.add_argument('transcription',type=Path);p.add_argument('output',type=Path)
     p.add_argument('--selected-pages',type=int,nargs='+')
     p.add_argument('--selected-questions',nargs='+')
-    a=p.parse_args();run(a.source,a.pages,a.transcription,a.output,a.selected_pages,a.selected_questions)
+    p.add_argument('--circle-detector',choices=['contour','connected-arcs'],default='contour')
+    a=p.parse_args();run(a.source,a.pages,a.transcription,a.output,a.selected_pages,a.selected_questions,a.circle_detector)

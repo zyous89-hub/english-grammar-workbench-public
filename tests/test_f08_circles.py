@@ -2,12 +2,25 @@ import unittest
 import cv2
 import numpy as np
 
-from tools.compare_f08_circles import circles, duplicate, exemptions
+from tools.compare_f08_circles import circles, connected_circles, duplicate, exemptions
 from tools.classify_grid_stages import question_review
 from tests import test_stage_classification as stage_tests
 
 
 class CircleExperimentTest(unittest.TestCase):
+    def test_connected_ring_and_non_circle_marks(self):
+        for name in ('circle_box','box','number','check','blank'):
+            image=np.full((160,160),255,np.uint8)
+            if name in ('circle_box','box'):
+                cv2.rectangle(image,(25,20),(135,140),0,3)
+            if name=='circle_box':
+                cv2.ellipse(image,(75,80),(50,50),0,0,315,0,3)
+            if name in ('circle_box','box','number'):
+                cv2.putText(image,'5',(60,100),cv2.FONT_HERSHEY_SIMPLEX,1.2,0,3)
+            if name=='check':
+                cv2.polylines(image,[np.array([[30,70],[55,100],[120,25]])],False,0,3)
+            self.assertEqual(bool(connected_circles(image)),name=='circle_box',name)
+
     def test_duplicate_and_extra_inner_ink(self):
         image=np.full((100,100),255,np.uint8)
         cv2.circle(image,(50,50),36,0,2)
