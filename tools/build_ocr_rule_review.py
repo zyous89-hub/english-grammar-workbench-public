@@ -1,11 +1,29 @@
 """Build the offline review form from the audited rule inventory (no student data)."""
 from pathlib import Path
+import argparse
 import hashlib
 import json
 import re
 from ocr_rule_readable import RULES, ORIGINS, ANSWERS, entries
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def render_snapshot(snapshot, previous):
+    """Render an existing review snapshot without rewriting its source or history."""
+    snapshot, previous = snapshot.resolve(), previous.resolve()
+    data = json.loads(snapshot.read_text(encoding='utf-8'))
+    assert re.fullmatch(r'\d{3}', data['version'])
+    assert len(data['rules']) == len({r['id'] for r in data['rules']})
+    data.update(source=snapshot.relative_to(ROOT).as_posix(),
+                source_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+                previous_sha256=hashlib.sha256(previous.read_bytes()).hexdigest())
+    template = (ROOT / 'tools/templates/ocr-rule-review.html').read_text(encoding='utf-8')
+    output = template.replace('__RULE_DATA__', json.dumps(data, ensure_ascii=False).replace('<', '\\u003c'))
+    assert '__RULE_DATA__' not in output
+    for name in ('ocr-rule-review.html', f"ocr-rule-review-{data['version']}.html"):
+        (ROOT / 'docs' / name).write_text(output, encoding='utf-8')
+    print(f"Built {len(data['rules'])} rules from {snapshot.name}; prior snapshots preserved")
 
 
 def build():
@@ -37,17 +55,17 @@ def build():
              '과거 혼합 보류 분기, 과거 음영 실험값, 078의 유사 손상 탐색 기준은 현행 채점 규칙이 아닙니다.')
     snapshot = ROOT / 'docs/ocr-rule-inventory-083.json'
     snapshot.write_text(json.dumps(dict(version='083', rules=rules, additional_notes=extra), ensure_ascii=False, indent=2), encoding='utf-8')
-    data = dict(version="083", source="docs/ocr-rule-inventory-083.json",
-                source_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
-                previous_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
-                rules=rules, additional_notes=extra)
-    template = (ROOT / "tools/templates/ocr-rule-review.html").read_text(encoding="utf-8")
-    output = template.replace("__RULE_DATA__", json.dumps(data, ensure_ascii=False).replace("<", "\\u003c"))
-    target = ROOT / "docs/ocr-rule-review.html"
-    target.write_text(output, encoding="utf-8")
-    (ROOT / 'docs/ocr-rule-review-083.html').write_text(output, encoding='utf-8')
-    print(f"Built {len(rules)} rules: {target}")
+    render_snapshot(snapshot, source)
 
 
 if __name__ == "__main__":
-    build()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--snapshot', type=Path)
+    parser.add_argument('--previous', type=Path)
+    args = parser.parse_args()
+    if bool(args.snapshot) != bool(args.previous):
+        parser.error('--snapshot and --previous must be supplied together')
+    if args.snapshot:
+        render_snapshot(args.snapshot, args.previous)
+    else:
+        build()
