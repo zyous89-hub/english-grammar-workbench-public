@@ -95,7 +95,7 @@ def overlaps(a, b):
     return max(a[0], b[0]) < min(a[2], b[2]) and max(a[1], b[1]) < min(a[3], b[3])
 
 
-def question_review(regions, answer, alignment):
+def question_review(regions, answer, alignment, *, f08_exemptions=()):
     """Post-run simulation only. No transcription, answer ROI or question ID input."""
     candidates = [r for r in regions if r['stage'] == 0]
     sets = {tuple(r['choice']) for r in candidates}
@@ -119,7 +119,7 @@ def question_review(regions, answer, alignment):
         if proposed:
             # 119: preserved print numbers do not prove a competing selection.
             for reason in ('6', '7'):
-                related = [r['id'] for r in regions if r['reason'] == reason
+                related = [r['id'] for r in regions if r['reason'] == reason and r['id'] not in f08_exemptions
                            and any(overlaps(r['box'], c['box']) for c in candidates)]
                 if related:
                     stop(3, reason, 'F08(b)', related)
