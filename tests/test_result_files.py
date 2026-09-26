@@ -13,6 +13,7 @@ from src.result_files import (ResultFileError, atomic_json, load_result, load_st
                               save_correction, validate_result, write_result)
 from tools.export_result import export
 from tools.serve_result_review import make_server
+from tools.package_result_review import package
 
 
 class ResultFilesTest(unittest.TestCase):
@@ -25,6 +26,24 @@ class ResultFilesTest(unittest.TestCase):
     def correction(self, state=None, answer='2,3', judgement='정답'):
         state=state or load_state(self.path)
         return save_correction(self.path,'demo-q1',answer,judgement,'확인함',state['revision'],state['result']['result_id'])
+
+    def test_portable_screen_embeds_exact_images_and_keeps_input_files(self):
+        import base64
+        self.correction()
+        saved=(self.root/'teacher-corrections.json').read_bytes()
+        result=deepcopy(self.initial)
+        result['questions'][0]['reasons'][0]['message']='</script><script>unsafe()</script>'
+        atomic_json(self.path,result)
+        output=self.root/'portable.html'
+        meta=package(self.path,output)
+        page=output.read_text(encoding='utf-8')
+        self.assertEqual(meta['images'],1)
+        self.assertNotIn('</script><script>unsafe()',page)
+        payload=json.loads(page.split('const portableData=',1)[1].split(';\n',1)[0])
+        self.assertEqual(base64.b64decode(payload['images']['evidence/demo.png'].split(',')[1]),(self.root/'evidence/demo.png').read_bytes())
+        self.assertEqual((self.root/'teacher-corrections.json').read_bytes(),saved)
+        self.assertIn("connect-src 'none'",page)
+        with self.assertRaises(FileExistsError):package(self.path,output)
 
     def test_unknown_reason_is_data_and_duplicate_ids_paths_are_rejected(self):
         result=deepcopy(self.initial)

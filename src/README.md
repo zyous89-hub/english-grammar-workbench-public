@@ -19,3 +19,13 @@ python -m unittest discover -s tests
 ```
 
 결과 파일은 엔진, `teacher-corrections.json`은 화면이 각각 소유합니다. 재채점 시 수정 파일을 복사하거나 초기화하지 않습니다. 서로 다른 실험 안은 별도 출력 폴더로 보존합니다.
+
+## 다른 PC에 전달
+
+```text
+python -m tools.package_result_review <결과폴더>/result.json <새파일명>.html
+```
+
+같은 검증 화면에 결과와 사진을 한 번씩 포함합니다. 서버·Python 없이 HTML을 브라우저에서 엽니다. Drive에 보관했다면 미리보기 대신 내려받아 엽니다. 교사 수정은 **JSON 다운로드**로 보관하며 HTML 자체에 저장되지 않습니다. 다시 열 때 상단의 **교사 수정 JSON 불러오기**로 복원합니다. 다운로드한 수정 파일은 같은 제출의 결과 폴더에 `teacher-corrections.json`으로 가져올 수도 있습니다. 기존 수정 파일이 있다면 비교·백업 없이 덮어쓰지 않습니다.
+
+실제 자료를 포함한 전달본은 Git에 넣지 않습니다. [137 전달 확인](../docs/conversations/2026-09-27-137.md).
