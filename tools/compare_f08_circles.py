@@ -88,7 +88,7 @@ def exemptions(regions, evidence, mode):
     return accepted
 
 
-def run(source, pages, transcription, output):
+def run(source, pages, transcription, output, selected_pages=None):
     if output.exists():
         raise ValueError('Use a new output directory')
     tracked={}
@@ -97,6 +97,14 @@ def run(source, pages, transcription, output):
         return json.loads(raw)
     base=read(source); assert len(base['runs'])==1
     saved=base['runs'][0]
+    if selected_pages is not None:
+        if not selected_pages or not set(selected_pages) <= {q['page'] for q in saved['questions']}:
+            raise ValueError('Requested pages are missing from the source')
+        questions=[q for q in saved['questions'] if q['page'] in selected_pages]
+        ids={q['id'] for q in questions}
+        saved={**saved,'questions':questions,'regions':[r for r in saved['regions'] if r['question'] in ids]}
+    scope=sorted({q['page'] for q in saved['questions']})
+    baseline=dict(Counter(q['comparison']['status'] for q in saved['questions']))
     alignment={p['page']:p for p in read(pages)}
     labels={q['id']:q for q in read(transcription)['rows']}
     assert all(labels[q['id']]['confirmed_by_user'] for q in saved['questions'])
@@ -130,6 +138,10 @@ def run(source, pages, transcription, output):
                              comparison=comparison,exemptions=allowed,changed=review!=q['review'],
                              context=os.path.relpath((source.parent/q['context']).resolve(),output).replace('\\','/')))
         summary=dict(questions=len(rows),counts=dict(Counter(q['comparison']['status'] for q in rows)),
+                     pages=scope,regions=len(regions),baseline=baseline,
+                     by_page={str(page):dict(questions=sum(q['page']==page for q in rows),
+                         baseline=dict(Counter(q['comparison']['status'] for q in saved['questions'] if q['page']==page)),
+                         counts=dict(Counter(q['comparison']['status'] for q in rows if q['page']==page))) for page in scope},
                      grading=dict(Counter(q['review']['status'] for q in rows)),
                      changed=[q['id'] for q in rows if q['changed']],
                      false_correct=sum(q['comparison']['false_correct'] for q in rows),
@@ -149,18 +161,21 @@ def run(source, pages, transcription, output):
 def report(path,mode,summary,rows):
     titles={'broad':'사용자안 · 동그라미 조각 예외','duplicate':'제안안 · 숫자와 중복된 동그라미 조각만 예외','compare':'F08(b) 두 조건 비교'}
     esc=lambda s:html.escape(str(s))
+    common=summary['broad'] if mode=='compare' else summary
     content=''
     if mode=='compare':
         for key,s in summary.items():
             content+=f'<h2><a href="{key}.html">{titles[key]}</a></h2><p>전사 일치 {s["counts"].get("전사 일치",0)} · 보류 {s["counts"].get("보류",0)} · 전사 불일치 {s["counts"].get("전사 불일치",0)} · 오답→정답 {s["false_correct"]}</p>'
-        content+='<p>각 링크에서 전체 66문항과 변경 문항의 원래 문항 이미지를 확인할 수 있습니다.</p>'
+            for page,counts in s['by_page'].items():
+                content+=f'<p>{page}쪽 · {counts["questions"]}문항: 전사 일치 {counts["counts"].get("전사 일치",0)}, 보류 {counts["counts"].get("보류",0)} (기준 전사 일치 {counts["baseline"].get("전사 일치",0)}, 보류 {counts["baseline"].get("보류",0)})</p>'
+        content+=f'<p>각 링크에서 전체 {common["questions"]}문항과 변경 문항의 원래 문항 이미지를 확인할 수 있습니다.</p>'
     else:
         content=f'<p><a href="report.html">두 조건 비교로 돌아가기</a></p><p>전사 일치 {summary["counts"].get("전사 일치",0)} / 보류 {summary["counts"].get("보류",0)} / 변경 {len(summary["changed"])}문항</p><label><input id="changed" type="checkbox"> 변경 문항만 보기</label>'
         for q in rows:
             v=q['review']; marks='변경' if q['changed'] else '유지'
             content+=f'<details data-changed="{int(q["changed"])}"><summary>{esc(q["id"])} · {marks} · {esc(q["comparison"]["status"])} · 채점: {esc(v["status"])}</summary><p>전사: {esc(q["expected"])} / 자동 확정: {esc(v["selection"])} / 후보: {esc(v["proposed_selection"])}</p><p>예외 조각: {esc(q["exemptions"])} / 남은 보류 사유: {esc([x["rule"]+":"+x["code"] for x in v["reasons"]])}</p><img loading="lazy" src="{esc(q["context"])}" alt="{esc(q["id"])} 원래 문항"></details>'
     page='''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>F08(b) 조건 비교</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1000px;margin:30px auto;padding:0 18px;background:#f4f6fa;color:#182333}a{color:#1659aa}details{background:white;margin:10px 0;padding:14px;border:1px solid #ccd5df;border-radius:8px;overflow-wrap:anywhere}summary{cursor:pointer}img{display:block;max-width:100%;height:auto}h1{font-size:25px}p{overflow-wrap:anywhere}</style>'''
-    page+=f'<h1>{titles[mode]}</h1><p>2~10쪽 · 66문항 · 6000 / 0.7 / 3 · 076 알파벳 보존 입력. 같은 기존 OCR로 순차 재채점했습니다. 기준 결과는 전사 일치 3 / 보류 63입니다.</p><p>동그라미 자동 검출은 시험용입니다. 문항 번호·전사를 예외 결정에 사용하지 않았습니다. 이 자료로 규칙을 개발했으므로 독립 성능 평가가 아닙니다. 원 안의 다른 필기·취소 의미를 완전히 판별하지 못합니다.</p>'+content
+    page+=f'<h1>{titles[mode]}</h1><p>{esc(", ".join(map(str,common["pages"])))}쪽 · {common["questions"]}문항 · 6000 / 0.7 / 3 · 076 알파벳 보존 입력. 같은 기존 OCR로 순차 재채점했습니다. 기준 결과는 전사 일치 {common["baseline"].get("전사 일치",0)} / 보류 {common["baseline"].get("보류",0)}입니다.</p><p>동그라미 자동 검출은 시험용입니다. 문항 번호·전사를 예외 결정에 사용하지 않았습니다. 이 자료로 규칙을 개발했으므로 독립 성능 평가가 아닙니다. 원 안의 다른 필기·취소 의미를 완전히 판별하지 못합니다.</p>'+content
     page+='''<script>const c=document.querySelector('#changed');if(c)c.onchange=()=>document.querySelectorAll('details').forEach(d=>d.hidden=c.checked&&d.dataset.changed!=='1');</script></html>'''
     path.write_text(page,encoding='utf-8')
 
@@ -168,4 +183,5 @@ def report(path,mode,summary,rows):
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('source',type=Path);p.add_argument('pages',type=Path)
     p.add_argument('transcription',type=Path);p.add_argument('output',type=Path)
-    a=p.parse_args();run(a.source,a.pages,a.transcription,a.output)
+    p.add_argument('--selected-pages',type=int,nargs='+')
+    a=p.parse_args();run(a.source,a.pages,a.transcription,a.output,a.selected_pages)
