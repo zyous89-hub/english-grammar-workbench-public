@@ -142,7 +142,7 @@ def run(source, pages, transcription, output, selected_pages=None, selected_ques
     regions=saved['regions']; evidence={}
     for q in saved['questions']:
         assigned=[r for r in regions if r['question']==q['id']]
-        assert question_review(assigned,q['review']['key'] and ','.join(map(str,q['review']['key'])),alignment[q['page']])==q['review']
+        assert question_review(assigned,q['review']['key'] and ','.join(map(str,q['review']['key'])),alignment[q['page']],expected_count=q.get('required_count'))==q['review']
         candidates=[r for r in assigned if r['stage']==0]
         for r in assigned:
             if r['reason'] not in ('6','7') or not any(overlaps(r['box'],c['box']) for c in candidates):
@@ -163,12 +163,15 @@ def run(source, pages, transcription, output, selected_pages=None, selected_ques
             assigned=[r for r in regions if r['question']==q['id']]
             allowed=exemptions(assigned,evidence,mode)
             answer=','.join(map(str,q['review']['key'])) if q['review']['key'] else ''
-            review=question_review(assigned,answer,alignment[q['page']],f08_exemptions=allowed)
+            review=question_review(assigned,answer,alignment[q['page']],f08_exemptions=allowed,expected_count=q.get('required_count'))
             comparison=compare_label(review['selection'],labels[q['id']],review['key'])
             rows.append(dict(id=q['id'],page=q['page'],expected=q['expected'],review=review,
+                             required_count=q.get('required_count'),
                              comparison=comparison,exemptions=allowed,changed=review!=q['review'],
                              context=os.path.relpath((source.parent/q['context']).resolve(),output).replace('\\','/')))
         summary=dict(questions=len(rows),counts=dict(Counter(q['comparison']['status'] for q in rows)),
+                     explicit_count_questions=sum(q.get('required_count') is not None for q in rows),
+                     count_mismatch_questions=sum(any(r['code']=='14' for r in q['review']['reasons']) for q in rows),
                      source_note=base.get('source_note','같은 기존 OCR 결과로 순차 재채점했습니다.'),
                      shared_ocr_sha256=base.get('recognition_provenance',{}).get('fresh_result_sha256'),
                      pages=scope,regions=len(regions),baseline=baseline,circle_detector=circle_detector,
@@ -196,6 +199,8 @@ def report(path,mode,summary,rows):
     esc=lambda s:html.escape(str(s))
     common=summary['broad'] if mode=='compare' else summary
     content='<p>원 검출: '+('연결된 표시 보조 검출 적용' if common['circle_detector']=='connected-arcs' else '기존 윤곽 검출')+'</p>'
+    if common.get('explicit_count_questions'):
+        content+=f'<p>지시문에 답 개수가 명시된 문항: {common["explicit_count_questions"]}개. 숫자 후보가 있으나 개수가 맞지 않아 F12로 보류한 문항: {common["count_mismatch_questions"]}개. 후보 자체가 없는 문항은 기존 인식 실패 사유를 유지합니다.</p>'
     content+='<p><strong>전사 일치</strong>는 자동 확정한 학생 답이 확인 전사와 같다는 뜻입니다. <strong>채점 정답·오답</strong>은 그 학생 답을 답지와 비교한 결과입니다. 보류는 인식 실패와 같은 뜻이 아닙니다.</p><p>사용자안은 검출된 동그라미 조각의 F08(b) 전파를 면제합니다. 제안안은 같은 숫자를 둘러싼 중복 표시라는 위치·내부 잉크 조건까지 충족해야 면제합니다. 낮은 점수의 숫자를 답으로 승격하지는 않습니다.</p>'
     if mode=='compare':
         for key,s in summary.items():
@@ -211,13 +216,13 @@ def report(path,mode,summary,rows):
             assert a['id']==b['id']
             content+=f'<details><summary>{esc(a["id"])} · {a["page"]}쪽</summary><p>사용자안: {esc(a["review"]["status"])} {esc(a["review"]["selection"])} / 제안안: {esc(b["review"]["status"])} {esc(b["review"]["selection"])}</p><p>전사: {esc(a["expected"])}</p><img loading="lazy" src="{esc(a["context"])}" alt="{esc(a["id"])} 원래 문항"></details>'
     else:
-        content+=f'<p><a href="report.html">두 조건 비교로 돌아가기</a></p><p>전사 일치 {summary["counts"].get("전사 일치",0)} / 보류 {summary["counts"].get("보류",0)} / 전사 불일치 {summary["counts"].get("전사 불일치",0)} / 미확정 답 자동 확정 오류 {summary["counts"].get("미확정 답 자동 확정 오류",0)} / 변경 {len(summary["changed"])}문항</p><label>보기 <select id="view"><option value="held">확인 필요(보류)</option><option value="all">전체</option><option value="changed">기준에서 변경</option></select></label>'
+        content+=f'<p><a href="report.html">두 조건 비교로 돌아가기</a></p><p>전사 일치 {summary["counts"].get("전사 일치",0)} / 보류 {summary["counts"].get("보류",0)} / 전사 불일치 {summary["counts"].get("전사 불일치",0)} / 미확정 답 자동 확정 오류 {summary["counts"].get("미확정 답 자동 확정 오류",0)} / 변경 {len(summary["changed"])}문항</p><label>보기 <select id="view"><option value="held">확인 필요(보류)</option><option value="all">전체</option><option value="changed">원 예외 없는 기준에서 변경</option><option value="count">요구 개수가 명시된 문항</option></select></label>'
         for q in rows:
             v=q['review']; marks='변경' if q['changed'] else '유지'
-            content+=f'<details data-changed="{int(q["changed"])}" data-held="{int(v["status"]=="보류")}"><summary>{esc(q["id"])} · {marks} · {esc(q["comparison"]["status"])} · 채점: {esc(v["status"])}</summary><p>전사: {esc(q["expected"])} / 자동 확정: {esc(v["selection"])} / 후보: {esc(v["proposed_selection"])}</p><p>예외 조각: {esc(q["exemptions"])} / 남은 보류 사유: {esc([REASONS.get(x["code"],x["code"])+" ("+x["rule"]+")" for x in v["reasons"]])}</p><img loading="lazy" src="{esc(q["context"])}" alt="{esc(q["id"])} 원래 문항"></details>'
+            content+=f'<details data-changed="{int(q["changed"])}" data-held="{int(v["status"]=="보류")}" data-count="{int(q.get("required_count") is not None)}"><summary>{esc(q["id"])} · {marks} · {esc(q["comparison"]["status"])} · 채점: {esc(v["status"])}</summary><p>전사: {esc(q["expected"])} / 자동 확정: {esc(v["selection"])} / 후보: {esc(v["proposed_selection"])}</p><p>지시문 요구 개수: {esc(q.get("required_count") or "미지정")}</p><p>예외 조각: {esc(q["exemptions"])} / 남은 보류 사유: {esc([REASONS.get(x["code"],x["code"])+" ("+x["rule"]+")" for x in v["reasons"]])}</p><img loading="lazy" src="{esc(q["context"])}" alt="{esc(q["id"])} 원래 문항"></details>'
     page='''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>F08(b) 조건 비교</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1000px;margin:30px auto;padding:0 18px;background:#f4f6fa;color:#182333}a{color:#1659aa}details{background:white;margin:10px 0;padding:14px;border:1px solid #ccd5df;border-radius:8px;overflow-wrap:anywhere}summary{cursor:pointer}img{display:block;max-width:100%;height:auto}h1{font-size:25px}p{overflow-wrap:anywhere}</style>'''
     page+=f'<h1>{titles[mode]}</h1><p>{esc(", ".join(map(str,common["pages"])))}쪽 · {common["questions"]}문항 · 6000 / 0.7 / 3 · 076 알파벳 보존 입력.</p><p>{esc(common["source_note"])}</p><p>동그라미 예외 없는 기준: 전사 일치 {common["baseline"].get("전사 일치",0)} / 보류 {common["baseline"].get("보류",0)}입니다.</p><p>동그라미 자동 검출은 시험용입니다. 문항 번호·전사를 예외 결정에 사용하지 않았습니다. 이 자료로 규칙을 개발했으므로 독립 성능 평가가 아닙니다. 원 안의 다른 필기·취소 의미를 완전히 판별하지 못합니다.</p>'+content
-    page+='''<script>const c=document.querySelector('#view');if(c){c.onchange=()=>document.querySelectorAll('details').forEach(d=>d.hidden=c.value==='held'?d.dataset.held!=='1':c.value==='changed'&&d.dataset.changed!=='1');c.onchange();}</script></html>'''
+    page+='''<script>const c=document.querySelector('#view');if(c){c.onchange=()=>document.querySelectorAll('details').forEach(d=>d.hidden=c.value==='held'?d.dataset.held!=='1':c.value==='count'?d.dataset.count!=='1':c.value==='changed'&&d.dataset.changed!=='1');c.onchange();}</script></html>'''
     path.write_text(page,encoding='utf-8')
 
 

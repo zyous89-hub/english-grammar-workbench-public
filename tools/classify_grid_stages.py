@@ -25,7 +25,7 @@ REASONS = {
     '10': '답 후보 충돌',
     '12': '답지 해석 실패',
     '13': '인쇄·필기 혼합 · 조건부 적용 대기',
-    '14': '선택 개수 불일치 · 선택 작업 미적용',
+    '14': '선택 개수 불일치',
 }
 
 
@@ -95,7 +95,26 @@ def overlaps(a, b):
     return max(a[0], b[0]) < min(a[2], b[2]) and max(a[1], b[1]) < min(a[3], b[3])
 
 
-def question_review(regions, answer, alignment, *, f08_exemptions=()):
+def required_answer_count(text):
+    """Explicit instruction only; never infer a count from the key or 'all'."""
+    text = re.sub(r'^\s*\d+\.', '', text.strip())
+    before_choices = re.split(r'[①②③④⑤•]', text, maxsplit=1)[0]
+    end = re.search(r'[?？]|(?:고르|선택하)(?:시오|세요)\.?', before_choices)
+    if not end and not re.fullmatch(r'\s*[（(]?\s*정답\s*(?:은|[:：])?\s*(?:[1-5한두세네]|다섯)\s*개\s*[)）]?\s*', before_choices):
+        return None
+    header = before_choices[:end.end()] if end else before_choices
+    suffix = re.match(r'\s*[（(]\s*정답[^)）]*[)）]', before_choices[end.end():]) if end else None
+    if suffix:
+        header += suffix.group()
+    numbers = {'한':1, '두':2, '세':3, '네':4, '다섯':5}
+    token = r'(?<!\d)(다섯|[1-5한두세네])\s*개'
+    matches = re.findall(r'정답\s*(?:은|[:：])?\s*'+token, header)
+    matches += re.findall(token+r'(?:를|씩)?\s*(?:모두\s*)?(?:고르|고른|선택)', header)
+    values = {int(x) if x.isdigit() else numbers[x] for x in matches}
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def question_review(regions, answer, alignment, *, f08_exemptions=(), expected_count=None):
     """Post-run simulation only. No transcription, answer ROI or question ID input."""
     candidates = [r for r in regions if r['stage'] == 0]
     sets = {tuple(r['choice']) for r in candidates}
@@ -116,6 +135,11 @@ def question_review(regions, answer, alignment, *, f08_exemptions=()):
             stop(3, '11', 'F10', unknown)
         if len(sets) > 1:
             stop(4, '10', 'F06', [r['id'] for r in candidates])
+        reread_conflicts = [r['id'] for r in regions if r.get('reread_conflict')]
+        if reread_conflicts:
+            stop(4, '10', 'F06(re-read)', reread_conflicts)
+        if expected_count is not None and proposed and len(proposed) != expected_count:
+            stop(4, '14', 'F12', [r['id'] for r in candidates])
         if proposed:
             # 119: preserved print numbers do not prove a competing selection.
             for reason in ('6', '7'):
@@ -156,7 +180,7 @@ def compare_label(selection, label, key):
                                 and expected == key and selection != key)
 
 
-def build(root, output, *, source=None, transcription=None, selected_pages=None):
+def build(root, output, *, source=None, transcription=None, selected_pages=None, answer_counts=False):
     if output.exists():
         raise ValueError('Use a new output directory; existing reports are preserved')
     hashes = {}
@@ -183,11 +207,14 @@ def build(root, output, *, source=None, transcription=None, selected_pages=None)
         run_inputs = [dict(id=root.name, order=1, status='completed', evaluation=evaluation)]
         roi_runs = {}
         provenance = read(root/'provenance.json') if (root/'provenance.json').exists() else {}
+        counts = ({q['id']: required_answer_count(q['source_text']) for q in read(source/'questions.json')}
+                  if answer_counts else {})
     else:
         manifest = read(root/'manifest.json')
         labels = {q['id']: q for q in read(Path(manifest['config']['transcription']))['rows']}
         roi_runs = {r['id']: r for r in read(root/'answer-region-review.json')['results']}
         run_inputs = read(root/'results.json')
+        counts = {}
     assert all(q['confirmed_by_user'] for q in labels.values())
     runs = []
     for run in run_inputs:
@@ -206,6 +233,7 @@ def build(root, output, *, source=None, transcription=None, selected_pages=None)
                                 box=r['box'], preserved_choices=r['preserved_choices'],
                                 choice=student_choices(r['text']) if stage == 0 else None,
                                 semantic_annotation=r.get('semantic_annotation'),
+                                reread_conflict=r.get('reread_conflict'),
                                 mixed_print=(not r['preserved_choices'] and not r['answer_excluded']
                                     and ev['print_overlap_fraction'] >= .2 and ev['largest_residual'] > 12),
                                 reference_evidence=ev,
@@ -225,7 +253,7 @@ def build(root, output, *, source=None, transcription=None, selected_pages=None)
             # ROI belongs to a manual diagnostic, not a newly automatic assignment.
             foreign = [c['id'] for c in q['candidates'] if c['id'] not in {x['id'] for x in near}]
             assigned = [c for c in regions if c['question'] == q['id']]
-            review = question_review(assigned, q['key_answer'], pages.get(q['page']))
+            review = question_review(assigned, q['key_answer'], pages.get(q['page']), expected_count=counts.get(q['id']))
             comparison = compare_label(review['selection'], label, review['key'])
             old_comparison = compare_label(q['selection'], label, review['key'])
             reference = ''
@@ -254,6 +282,7 @@ def build(root, output, *, source=None, transcription=None, selected_pages=None)
             else:
                 bucket = '답 위치 조각이 여러 단계에서 중단'
             questions.append(dict(id=q['id'], page=q['page'], expected=label['transcription'],
+                required_count=counts.get(q['id']),
                 selection=q['selection'], old_status=previous['status'], bucket=bucket,
                 stages=stages, reasons=dict(Counter(c['reason'] for c in near)),
                 roi_crops=[c['id'] for c in near], passed=passed, cross_assigned=cross,
@@ -330,7 +359,10 @@ if __name__ == '__main__':
     p.add_argument('--source',type=Path,help='Source directory for a single existing OCR batch')
     p.add_argument('--transcription',type=Path)
     p.add_argument('--pages',type=int,nargs='+')
+    p.add_argument('--answer-counts',action='store_true',help='F12: read explicit count from original instructions')
     a=p.parse_args()
     if any(x is not None for x in (a.source,a.transcription,a.pages)) and not all((a.source,a.transcription,a.pages)):
         p.error('--source, --transcription and --pages must be supplied together')
-    build(a.root,a.output,source=a.source,transcription=a.transcription,selected_pages=a.pages)
+    if a.answer_counts and a.source is None:
+        p.error('--answer-counts requires --source')
+    build(a.root,a.output,source=a.source,transcription=a.transcription,selected_pages=a.pages,answer_counts=a.answer_counts)
