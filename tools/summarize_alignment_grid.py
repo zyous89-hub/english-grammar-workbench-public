@@ -11,6 +11,8 @@ from tools.run_alignment_grid import combinations, read, save, report
 
 def summarize(root):
     runs = read(root/'results.json')
+    cfg = read(root/'manifest.json')['config']
+    expected_ids = {q['id'] for q in read(cfg['previous'])}
     assert len(runs) == 27
     assert {(r['features'],r['ratio'],r['ransac']) for r in runs} == set(combinations())
     metrics = []
@@ -20,7 +22,7 @@ def summarize(root):
             continue
         rows = read(root/r['id']/'ocr/results.json')
         evaluation = read(root/r['id']/'ocr/evaluation.json')
-        assert {e['id'] for e in evaluation} == {f'C-p2-s0-q{i}' for i in range(1,9)}
+        assert len(evaluation) == len(expected_ids) and {e['id'] for e in evaluation} == expected_ids
         assert len({x['id'] for x in rows}) == len(rows)
         assert sum(x['ocr_executed'] for x in rows) == r['ocr_calls']
         for x in rows:
