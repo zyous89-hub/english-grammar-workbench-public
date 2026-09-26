@@ -117,13 +117,7 @@ def question_review(regions, answer, alignment):
         if len(sets) > 1:
             stop(4, '10', 'F06', [r['id'] for r in candidates])
         if proposed:
-            other_marks = [r['id'] for r in regions
-                           if r['route'] == 'choice_mark_review' and
-                           any(p['symbol'] in '①②③④⑤' and
-                               '①②③④⑤'.index(p['symbol'])+1 not in proposed
-                               for p in r['preserved_choices'])]
-            if other_marks:
-                stop(3, '8', 'F08(a)', other_marks)
+            # 119: preserved print numbers do not prove a competing selection.
             for reason in ('6', '7'):
                 related = [r['id'] for r in regions if r['reason'] == reason
                            and any(overlaps(r['box'], c['box']) for c in candidates)]
@@ -162,11 +156,11 @@ def compare_label(selection, label, key):
                                 and expected == key and selection != key)
 
 
-def build(root, output):
+def build(root, output, *, source=None, transcription=None, selected_pages=None):
     if output.exists():
         raise ValueError('Use a new output directory; existing reports are preserved')
     hashes = {}
-    for name in ['docs/ocr-rule-inventory-117.json', 'docs/decisions/0015-cg-submission-plan.md',
+    for name in ['docs/ocr-rule-inventory-117.json', 'docs/decisions/0016-disable-f08a.md',
                  'private/stage-classification-grid101-v2/report.html',
                  'private/stage-classification-grid101-v2/classification.json']:
         p = Path(name).resolve()
@@ -181,15 +175,26 @@ def build(root, output):
     def link(p):
         return os.path.relpath(Path(p).resolve(), output.resolve()).replace('\\', '/')
 
-    manifest = read(root/'manifest.json')
-    labels = {q['id']: q for q in read(Path(manifest['config']['transcription']))['rows']}
+    if source is not None:
+        labels = {q['id']: q for q in read(transcription)['rows'] if q['page'] in selected_pages}
+        evaluation = [q for q in read(root/'evaluation.json') if q['page'] in selected_pages]
+        if {q['page'] for q in evaluation} != set(selected_pages):
+            raise ValueError('Requested pages are missing from this OCR run')
+        run_inputs = [dict(id=root.name, order=1, status='completed', evaluation=evaluation)]
+        roi_runs = {}
+        provenance = read(root/'provenance.json') if (root/'provenance.json').exists() else {}
+    else:
+        manifest = read(root/'manifest.json')
+        labels = {q['id']: q for q in read(Path(manifest['config']['transcription']))['rows']}
+        roi_runs = {r['id']: r for r in read(root/'answer-region-review.json')['results']}
+        run_inputs = read(root/'results.json')
     assert all(q['confirmed_by_user'] for q in labels.values())
-    roi_runs = {r['id']: r for r in read(root/'answer-region-review.json')['results']}
     runs = []
-    for run in read(root/'results.json'):
+    for run in run_inputs:
         assert run['status'] == 'completed'
-        raw = read(root/run['id']/'ocr/results.json')
-        pages = {p['page']: p for p in read(root/run['id']/'source/pages.json')}
+        raw = read(root/'results.json' if source else root/run['id']/'ocr/results.json')
+        raw = [r for r in raw if r['question_id'] in labels]
+        pages = {p['page']: p for p in read(source/'pages.json' if source else root/run['id']/'source/pages.json')}
         regions = []
         for r in raw:
             stage, reason = classify(r)
@@ -207,11 +212,12 @@ def build(root, output):
                                 exclusion_evidence=r['exclusion_evidence']))
         by_id = {r['id']: r for r in regions}
         assert len(by_id) == len(regions)
-        rois = {q['id']: q for q in roi_runs[run['id']]['rows']}
-        transcription = {q['id']: q for q in run['transcription']['rows']}
+        rois = {q['id']: q for q in roi_runs.get(run['id'], {}).get('rows', [])}
+        old_transcription = {q['id']: q for q in run.get('transcription', {}).get('rows', [])}
         questions = []
         for q in run['evaluation']:
-            label, roi, previous = labels[q['id']], rois[q['id']], transcription[q['id']]
+            label, roi = labels[q['id']], rois.get(q['id'], {'crops': []})
+            previous = old_transcription.get(q['id'], {'status': compare_label(q['selection'], label, key_answer(q['key_answer']))['status']})
             near = [by_id[c['id']] for c in roi['crops']]
             stages = sorted({c['stage'] for c in near if c['stage']})
             passed = [c['id'] for c in near if c['stage'] == 0]
@@ -229,7 +235,9 @@ def build(root, output):
                 reference = '3단계·사유11: 모름 표시 (사용자 전사 확인, 자동 검출 아님)'
             elif label['answer_status'] == 'partial_with_question_mark':
                 reference = '3단계·사유11 검토: 숫자와 물음표 공존 (전사 확인, 최종 의미 미확정)'
-            if reference:
+            if not rois:
+                bucket = '수동 답 위치 자료 없음 · 배정된 조각으로 분류'
+            elif reference:
                 bucket = '사용자 확인 특수 표시'
             elif conflict(q['candidates']):
                 bucket = '4단계 · 사유10 답 후보 충돌'
@@ -255,6 +263,7 @@ def build(root, output):
                 old_comparison=old_comparison, old_grade=q['status'],
                 mixed_old_candidates=[c['id'] for c in q['candidates'] if by_id[c['id']]['mixed_print']],
                 assigned_crops=[c['id'] for c in assigned],
+                roi_available=bool(rois),
                 changed=q['selection'] != review['selection'] or q['status'] != review['status']))
         assert {q['id'] for q in questions} == set(labels)
         runs.append(dict(id=run['id'], order=run['order'], questions=questions, regions=regions,
@@ -288,14 +297,18 @@ def build(root, output):
             q['comparison']['status'] in ('전사 불일치', '미확정 답 자동 확정 오류') for q in all_questions),
         mixed_old_errors=sum(bool(q['mixed_old_candidates']) and
             q['old_comparison']['status'] in ('전사 불일치', '미확정 답 자동 확정 오류') for q in all_questions))
-    assert len(runs) == 36 and len(all_questions) == 1260 and len(all_regions) == 12969
+    assert runs and len(all_questions) == len(runs) * len(labels)
+    if source is None:
+        assert len(runs) == 36 and len(all_questions) == 1260 and len(all_regions) == 12969
     assert sum(summary['region_counts'].values()) == len(all_regions)
     for name, digest in hashes.items():
         assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
     output.mkdir(parents=True)
     payload = dict(summary=summary, reasons=REASONS, runs=runs,
-                   rule_basis=['conversations/2026-09-26-107.md', 'decisions/0014-b-stage-freeze.md', 'decisions/0015-cg-submission-plan.md', 'ocr-rule-inventory-117.json'],
-                   method='117 post-run simulation: F05/F06/F08/F10/D12/G03. Labels and manual ROIs are evaluation only. D11 conditional decision awaits 134-question audit; F12 optional not applied. E02 does not rewrite historical execution.',
+                   pages=sorted({q['page'] for q in all_questions}),
+                   source_note=(provenance.get('note', '075 OCR 재사용: 기준 설정 6000 / 0.7 / 3. 076의 동그라미 알파벳 보존 적용 전입니다.') if source else '101 OCR 재사용'),
+                   rule_basis=['conversations/2026-09-26-107.md', 'decisions/0014-b-stage-freeze.md', 'decisions/0015-cg-submission-plan.md', 'decisions/0016-disable-f08a.md'],
+                   method='119 post-run simulation: F08(a) removed, F08(b) retained. Labels and manual ROIs are evaluation only. D11 conditional decision awaits 134-question audit; F12 optional not applied. E02 does not rewrite historical execution.',
                    source_sha256=hashes)
     (output/'classification.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
     template = Path(__file__).with_name('templates')/'stage-classification.html'
@@ -313,5 +326,10 @@ if __name__ == '__main__':
     p=argparse.ArgumentParser()
     p.add_argument('root',type=Path)
     p.add_argument('output',type=Path)
+    p.add_argument('--source',type=Path,help='Source directory for a single existing OCR batch')
+    p.add_argument('--transcription',type=Path)
+    p.add_argument('--pages',type=int,nargs='+')
     a=p.parse_args()
-    build(a.root,a.output)
+    if any(x is not None for x in (a.source,a.transcription,a.pages)) and not all((a.source,a.transcription,a.pages)):
+        p.error('--source, --transcription and --pages must be supplied together')
+    build(a.root,a.output,source=a.source,transcription=a.transcription,selected_pages=a.pages)
