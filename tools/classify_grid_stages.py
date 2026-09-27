@@ -234,6 +234,8 @@ def build(root, output, *, source=None, transcription=None, selected_pages=None,
                                 choice=student_choices(r['text']) if stage == 0 else None,
                                 semantic_annotation=r.get('semantic_annotation'),
                                 reread_conflict=r.get('reread_conflict'),
+                                circle_search=({**r['circle_search'], 'input':link(r['circle_search']['input'])}
+                                    if (r.get('circle_search') or {}).get('input') else r.get('circle_search')),
                                 mixed_print=(not r['preserved_choices'] and not r['answer_excluded']
                                     and ev['print_overlap_fraction'] >= .2 and ev['largest_residual'] > 12),
                                 reference_evidence=ev,

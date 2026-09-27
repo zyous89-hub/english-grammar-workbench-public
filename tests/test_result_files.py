@@ -101,6 +101,19 @@ class ResultFilesTest(unittest.TestCase):
         self.assertNotIn('NEVER_EXPORT_TRANSCRIPTION',output)
         self.assertEqual((self.root/'teacher-corrections.json').read_bytes(),saved)
         self.assertEqual(load_result(self.path)['questions'][0]['reasons'][0]['message'],'선택 개수 불일치')
+        payload['rows'][0]['review'].update(candidates=['crop'], proposed_selection=[1])
+        atomic_json(comparison,payload)
+        atomic_json(classification,{'runs':[{'questions':[{'id':'demo-q1'}], 'regions':[
+            dict(id='crop',question='demo-q1',input='evidence/demo.png',text='1',score=.95,
+                 circle_search=dict(previous_text='0',previous_score=.2,text='1',score=.95,
+                                    input='evidence/demo.png',adopted=True))]}]})
+        export(comparison,classification,self.root,self.initial['assessment_id'],'engine-rules-3')
+        q=load_result(self.path)['questions'][0]
+        self.assertEqual(q['read_answer'],'1')
+        self.assertIn('읽은 내용 0',q['evidence_images'][1]['label'])
+        self.assertIn('원 내부 재인식',q['evidence_images'][2]['label'])
+        self.assertIn('읽은 내용 1',q['evidence_images'][2]['label'])
+        self.assertEqual((self.root/'teacher-corrections.json').read_bytes(),saved)
 
     def test_http_unknown_reason_and_protected_save(self):
         result=deepcopy(self.initial);result['questions'][0]['reasons'].append(dict(code='FAKE-999',message='앱을 바꾸지 않은 새 사유',stage=3))
