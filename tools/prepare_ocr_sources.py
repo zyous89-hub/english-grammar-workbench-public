@@ -77,7 +77,7 @@ def main():
       ink=cv2.adaptiveThreshold(aligned,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY_INV,31,14);printed=cv2.dilate((original<195).astype(np.uint8),np.ones((3,3),np.uint8));diff=((ink>0)&(printed==0)).astype(np.uint8)*255;_,lab,stats,_=cv2.connectedComponentsWithStats(diff);clean=np.zeros_like(diff)
       for j,(x,y,w,h,area) in enumerate(stats[1:],1):
        if area>=8 and h>=3:clean[lab==j]=255
-      residual=np.linalg.norm(cv2.perspectiveTransform(b[:,None,:],M)[:,0,:]-a,axis=1);pages.append({'source':str(f),'id':sid,'page':page,'kind':kind,'matrix':M.tolist(),'inliers':int(ok.sum()),'median_error':float(np.median(residual[ok.ravel()==1]))})
+      residual=np.linalg.norm(cv2.perspectiveTransform(b[:,None,:],M)[:,0,:]-a,axis=1);pages.append({'source':str(f),'id':sid,'page':page,'kind':kind,'scan_short_side':int(min(native.shape)),'matrix':M.tolist(),'inliers':int(ok.sum()),'median_error':float(np.median(residual[ok.ravel()==1]))})
       overlay=cv2.cvtColor(aligned,cv2.COLOR_GRAY2BGR)
       for h in temp['questions']:
        qid=f'{cfg["id"]}-p{h["pattern"]}-s{h["part"]}-q{h["question"]}';x1,y1,x2,y2=h['zone'];q={**h,'id':qid,'set':cfg['id'],'kind':kind,'page':page,'student':str(f),'segments':[],'key':keys[qid]};boxes=[];context=P/'contexts'/(qid+'.jpg');cv2.imwrite(str(context),high[round(y1*SY):round(y2*SY),round(x1*SX):round(x2*SX)]);q['context']=str(context)

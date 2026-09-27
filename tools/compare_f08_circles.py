@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from tools.classify_grid_stages import question_review, compare_label, overlaps, REASONS
+from tools.scan_resolution import inspect_scan_sizes
 
 
 def radius(x, y, ellipse):
@@ -136,7 +137,7 @@ def run(source, pages, transcription, output, selected_pages=None, selected_ques
                'regions':[r for r in saved['regions'] if r['question'] in selected_questions]}
     scope=sorted({q['page'] for q in saved['questions']})
     baseline=dict(Counter(q['comparison']['status'] for q in saved['questions']))
-    alignment={p['page']:p for p in read(pages)}
+    alignment={p['page']:p for p in inspect_scan_sizes(read(pages), pages.parent)}
     labels={q['id']:q for q in read(transcription)['rows']}
     assert all(labels[q['id']]['confirmed_by_user'] for q in saved['questions'])
     regions=saved['regions']; evidence={}
