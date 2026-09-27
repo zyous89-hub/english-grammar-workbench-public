@@ -1,4 +1,4 @@
-"""One local OCR pass on separable handwriting inside a detected circle."""
+"""One local OCR pass on separable handwriting inside circles or rectangles."""
 import argparse
 import hashlib
 import json
@@ -6,7 +6,6 @@ import math
 from pathlib import Path
 import subprocess
 import sys
-import unicodedata
 
 import cv2
 import numpy as np
@@ -16,44 +15,76 @@ from tools.classify_grid_stages import classify, student_choices
 from tools.compare_f08_circles import connected_circles, radius
 
 
-def target_text(text):
-    if text.strip() in ('0', '０'):
-        return True
-    return any('CIRCLED' in unicodedata.name(c, '') and c.isnumeric() for c in text)
-
-
 def eligible(row):
     # Existing acceptance remains >= .8. Only already-held low-score rows enter.
-    return (classify(row) == (2, '6') and row['score'] <= .8 and target_text(row['text'])
+    # The enclosing shape is found in pixels, not guessed from the OCR character.
+    return (classify(row) == (2, '6') and row['score'] <= .8
             and row['route'] == 'student_candidate' and not row.get('preserved_choices')
             and not row.get('semantic_annotation') and not row.get('reread_conflict')
             and not row.get('circle_search'))
 
 
+def enclosures(gray):
+    """Return inner masks and boundary samples; no semantic cancellation detector."""
+    yy, xx = np.indices(gray.shape)
+    found = []
+    for circle in connected_circles(gray):
+        distance = radius(xx, yy, circle['ellipse'])
+        found.append((distance < .9, (distance >= .9) & (distance <= 1.1),
+                      dict(kind='circle', ellipse=circle['ellipse'])))
+    contours, _ = cv2.findContours(np.uint8(gray < 195), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        polygon = cv2.approxPolyDP(contour, .025 * cv2.arcLength(contour, True), True)
+        if len(polygon) != 4 or not cv2.isContourConvex(polygon):
+            continue
+        points = polygon[:, 0, :].astype(float)
+        edges = np.roll(points, -1, axis=0) - points
+        lengths = np.linalg.norm(edges, axis=1)
+        if lengths.min() < max(20, .3 * min(gray.shape)) or cv2.contourArea(polygon) < .08 * gray.size:
+            continue
+        # Allow hand-drawn tilted boxes; reject very acute diamond-like corners.
+        cosines = np.sum(edges * np.roll(edges, 1, axis=0), axis=1) / (lengths * np.roll(lengths, 1))
+        if np.max(np.abs(cosines)) > .55:
+            continue
+        filled = np.zeros(gray.shape, np.uint8); cv2.fillPoly(filled, [polygon], 1)
+        distance = cv2.distanceTransform(filled, cv2.DIST_L2, 3)
+        margin = max(2, .05 * lengths.min())
+        inside = distance > margin
+        boundary = np.zeros(gray.shape, np.uint8)
+        cv2.polylines(boundary, [polygon], True, 1, 3)
+        found.append((inside, boundary.astype(bool), dict(kind='rectangle', polygon=polygon[:, 0, :].tolist())))
+    return found
+
+
 def inner_image(gray):
-    """Keep whole interior components together; never cut a digit off its ring."""
-    found = connected_circles(gray)
+    """Remove separate enclosing frames, retaining every enclosed ink component."""
+    found = enclosures(gray)
     if not found:
-        return None, dict(status='no_circle')
+        return None, dict(status='no_enclosure')
     _, labels, stats, _ = cv2.connectedComponentsWithStats(np.uint8(gray < 195), 8)
     parts = {i:np.where(labels == i) for i in range(1, len(stats)) if stats[i, cv2.CC_STAT_AREA] >= 8}
-    candidates = {}
-    for circle in found:
+    frames = []
+    for interior, boundary, geometry in found:
         inside, ambiguous = [], False
         for i, (yy, xx) in parts.items():
-            distances = radius(xx, yy, circle['ellipse'])
-            if distances.min() < .9:
-                if distances.max() >= .9:
+            contained = interior[yy, xx]
+            if contained.any():
+                if not contained.all():
                     ambiguous = True
                     break
                 inside.append(i)
-        # One exterior component may be the circle joined to a box. Extra outside
-        # components could be another answer: do not silently drop them.
-        if inside and not ambiguous and len(parts) - len(inside) == 1:
-            candidates[tuple(inside)] = circle
+        if not inside or ambiguous:
+            continue  # A bare 0/6/8/9 has no separate ink inside its hole.
+        outline = {i for i, (yy, xx) in parts.items() if boundary[yy, xx].any() and i not in inside}
+        if len(outline) == 1:
+            frames.append((set(inside), next(iter(outline)), geometry))
+    removed = {outline for _, outline, _ in frames}
+    candidates = {tuple(sorted(inside - removed)) for inside, _, _ in frames if inside - removed}
     if len(candidates) != 1:
-        return None, dict(status='unseparated_or_ambiguous', circles=len(found))
-    ids, circle = next(iter(candidates.items()))
+        return None, dict(status='unseparated_or_ambiguous', shapes=len(found))
+    ids = next(iter(candidates))
+    if set(parts) != set(ids) | removed:
+        return None, dict(status='outside_ink')  # Never discard an answer outside the selected frame.
     mask = np.isin(labels, ids)
     # Retain antialiasing immediately around the kept components, but reject any
     # contact with other dark ink. No reconstruction/inpainting of missing strokes.
@@ -62,7 +93,7 @@ def inner_image(gray):
         return None, dict(status='touching_ink')
     separated = np.where(keep, gray, 255).astype(np.uint8)
     image = reread_image(separated)
-    return image, dict(status='prepared', ellipse=circle['ellipse'], components=len(ids),
+    return image, dict(status='prepared', shapes=[geometry for _, _, geometry in frames], components=len(ids),
                        ink_pixels=int(mask.sum()), transform='whole interior components; nearest 2x; padding 10')
 
 
@@ -96,7 +127,7 @@ def run(batch, source, output, model):
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
     rows = read(batch/'results.json')
     if any(r.get('circle_search') for r in rows):
-        raise ValueError('This batch already had its one circle-inner search')
+        raise ValueError('This batch already had its one enclosed-ink search')
     if len({r['id'] for r in rows}) != len(rows):
         raise ValueError('Duplicate crop IDs')
     questions = {q['id']:q for q in read(source/'questions.json')}
@@ -144,8 +175,8 @@ def run(batch, source, output, model):
     shared = output/'shared-batch'; shared.mkdir()
     save(shared/'results.json', combined)
     (shared/'evaluation.json').write_bytes((batch/'evaluation.json').read_bytes())
-    save(shared/'provenance.json', dict(note=f'139: 낮은 점수 0·원문자 중 분리 가능한 내부 획 {len(extra)}조각만 한 차례 추가 OCR. 기존 결과 보존.',
-         method='139 bounded circle-inner search; no key/transcription-guided choice',
+    save(shared/'provenance.json', dict(note=f'140: 낮은 점수 필기 중 동그라미·네모 안에서 분리 가능한 내부 획 {len(extra)}조각만 한 차례 추가 OCR. 기존 결과 보존.',
+         method='140 bounded circle/rectangle inner search; no key/transcription-guided choice',
          fresh_result_sha256=hashlib.sha256((shared/'results.json').read_bytes()).hexdigest(),
          parent_result_sha256=tracked[str((batch/'results.json').resolve())], source_hashes=tracked))
     for path, digest in tracked.items():

@@ -111,7 +111,7 @@ class ResultFilesTest(unittest.TestCase):
         q=load_result(self.path)['questions'][0]
         self.assertEqual(q['read_answer'],'1')
         self.assertIn('읽은 내용 0',q['evidence_images'][1]['label'])
-        self.assertIn('원 내부 재인식',q['evidence_images'][2]['label'])
+        self.assertIn('도형 내부 재인식',q['evidence_images'][2]['label'])
         self.assertIn('읽은 내용 1',q['evidence_images'][2]['label'])
         self.assertEqual((self.root/'teacher-corrections.json').read_bytes(),saved)
 
