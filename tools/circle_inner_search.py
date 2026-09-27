@@ -13,6 +13,7 @@ import numpy as np
 from tools.answer_count_search import has_retry_history, reread_image
 from tools.classify_grid_stages import classify, student_choices
 from tools.compare_f08_circles import connected_circles, radius
+from tools.ocr_attached_enclosure import to_digit
 
 
 def eligible(row):
@@ -97,7 +98,7 @@ def inner_image(gray):
                        ink_pixels=int(mask.sum()), transform='whole interior components; nearest 2x; padding 10')
 
 
-def reconcile(original, extra, evidence):
+def reconcile(original, extra, evidence, *, allow_low_confidence_consensus=False):
     updated = dict(original)
     trace = dict(evidence, attempts=1, previous_text=original['text'], previous_score=original['score'],
                  text=extra['text'], score=extra['score'], input=extra['input'],
@@ -105,8 +106,31 @@ def reconcile(original, extra, evidence):
     if classify(extra)[0] == 0:
         before, after = student_choices(original['text']), student_choices(extra['text'])
         if before is not None and before != after:
-            updated['reread_conflict'] = [before, after]
-            trace['status'] = 'answer_conflict'
+            method = evidence.get('method')
+            widths = method == 'hull_stable'
+            expected = [2.0, 2.5, 3.0] if widths else [16, 24]
+            reads = evidence.get('confirmation_reads' if method == 'enclosure' else 'reads', [])
+            digit = to_digit(extra['text'])
+            score = original['score']
+            agreed = (allow_low_confidence_consensus
+                      and isinstance(score, (int, float)) and math.isfinite(score) and score < .8
+                      and method in ('hull_stable', 'size_stable_C', 'circle_strip_D-1',
+                                     'circle_strip_D-2', 'enclosure')
+                      and original.get('reread_conflict') in (None, [before, after])
+                      and digit is not None and isinstance(reads, list) and len(reads) == len(expected)
+                      and all(isinstance(r, dict) for r in reads)
+                      and [r.get('k' if widths else 'pad_y') for r in reads] == expected
+                      and all(to_digit(r.get('text')) == digit
+                              and isinstance(r.get('score'), (int, float))
+                              and math.isfinite(r['score']) and r['score'] >= .8 for r in reads))
+            if agreed:
+                updated.pop('reread_conflict', None)
+                updated.update(text=extra['text'], score=extra['score'])
+                trace.update(status='adopted', adopted=True, low_confidence_consensus=True)
+            else:
+                updated['reread_conflict'] = ((original.get('reread_conflict') or [before, after])
+                                              if allow_low_confidence_consensus else [before, after])
+                trace['status'] = 'answer_conflict'
         else:
             updated.update(text=extra['text'], score=extra['score'])
             trace.update(status='adopted', adopted=True)

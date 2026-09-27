@@ -57,19 +57,26 @@ def export(comparison, classification, output, assessment_id, rules_version, tit
             # ponytail: retain the preceding peel/B attempt; deeper chains need an explicit policy.
             for trace_id, trace in ((ident, inner), (ident+'-previous', previous)):
                 entries = []
+                size_only = trace.get('method') == 'size_stable_C'
+                removal = '네모 제거' if size_only else '동그라미까지 제거'
                 if trace.get('input'):
                     label = f"{'추가 재인식' if r.get('retry_search') else '도형 내부 재인식'} {ident} · 읽은 내용 {trace['text'] or '없음'} · 점수 {trace['score']:.3f} · "
                     label += '후보 채택' if trace.get('adopted') else '보류 유지'
                     pads = [reading for reading in trace.get('reads', []) if 'pad_y' in reading]
                     if pads:
                         scores = '/'.join(f"{reading['score']:.3f}" for reading in pads)
-                        label += f" · 동그라미까지 제거 · {trace['text'] or '없음'} · {scores}"
+                        label += f" · {removal} · {trace['text'] or '없음'} · {scores}"
                     entries.append((trace['input'], trace_id+'-inner', label))
                 for number, reading in enumerate(trace.get('reads', []), 1):
-                    transform = (f"동그라미까지 제거 · 위아래 여백 {reading['pad_y']}px" if 'pad_y' in reading
+                    transform = (f"{removal} · 위아래 여백 {reading['pad_y']}px" if 'pad_y' in reading
                                  else f"테두리 제거 폭 {reading['k']:.1f}")
                     label = f"{transform} · 읽은 내용 {reading['text'] or '없음'} · 점수 {reading['score']:.3f}"
                     entries.append((reading['input'], trace_id+f'-retry-{number}', label))
+                for group, label in (('prior_size_reads', '앞선 C 두 크기 확인'),
+                                     ('confirmation_reads', 'E 확인용 D-2')):
+                    for number, reading in enumerate(trace.get(group, []), 1):
+                        entries.append((reading['input'], trace_id+f'-{group}-{number}',
+                            f"{label} · 위아래 여백 {reading['pad_y']}px · {reading['text']} · 점수 {reading['score']:.3f}"))
                 for name, label in (('frame_removed', '네모 제거'), ('circle_removed', '동그라미까지 제거')):
                     if trace.get(name):
                         entries.append((trace[name], trace_id+'-'+name, label+' · '+ident))

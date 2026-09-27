@@ -3,11 +3,29 @@ from unittest.mock import patch
 
 import numpy as np
 
-from tools.ocr_circle_strip import eligible, circle_strip_reading, peeled_circle_strip_reading
+from tools.ocr_circle_strip import eligible, circle_strip_reading, peeled_circle_strip_reading, size_stable_reading
 from tools.ocr_retry_preprocess import normalise
 
 
 class CircleStripTest(unittest.TestCase):
+    def test_C_one_hull_two_sizes_and_fixed_second_read(self):
+        mask=np.zeros((50,25),np.uint8);mask[5:45,5:20]=255
+        with patch('tools.ocr_circle_strip.hull_strip',return_value=mask) as hull:
+            inputs=[];reads=iter([('④',.908),('④',.847)])
+            def ocr(image):
+                inputs.append(image)
+                return next(reads)
+            self.assertEqual(size_stable_reading(255-mask,ocr),
+                             (('④',.847),[('④',.908),('④',.847)]))
+            self.assertEqual(hull.call_count,1)
+            self.assertEqual(hull.call_args.args[1],2.5)
+            self.assertEqual([x.shape for x in inputs],[(72,63),(88,63)])
+            for values in ([('2',.99),('3',.99)],[('3',.799),('3',.99)],[('6',.99),('6',.99)]):
+                it=iter(values)
+                self.assertIsNone(size_stable_reading(255-mask,lambda image:next(it)))
+        with patch('tools.ocr_circle_strip.hull_strip',return_value=None):
+            self.assertIsNone(size_stable_reading(255-mask,lambda image:self.fail('No mask')))
+
     def test_two_padding_benchmark_and_entry_gate(self):
         row=dict(route='student_candidate',empty=False,answer_excluded=False,
                  preserved_choices=[],text='③',score=.7)

@@ -179,3 +179,12 @@ class ResultFilesTest(unittest.TestCase):
                          {'crop-frame_removed','crop-circle_removed'})
         for item in proof:
             self.assertEqual((self.root/item['path']).read_bytes(),(self.root/'evidence/demo.png').read_bytes())
+        trace=crop['retry_search'];trace['method']='size_stable_C'
+        trace['prior_size_reads']=trace['reads']
+        trace['confirmation_reads']=trace['reads']
+        atomic_json(classification,payload)
+        export(comparison,classification,self.root,self.initial['assessment_id'],'size-consensus')
+        proof=load_result(self.path)['questions'][0]['evidence_images']
+        self.assertIn('네모 제거 · 4 · 0.991/0.984',next(p for p in proof if p['id']=='crop-inner')['label'])
+        for label in ('앞선 C 두 크기 확인','E 확인용 D-2'):
+            self.assertEqual(sum(label in p['label'] for p in proof),2)

@@ -36,6 +36,12 @@ def circle_strip_reading(gray, ocr):
     return _two_sizes(m2, ocr) if m2 is not None else None
 
 
+def size_stable_reading(gray, ocr):
+    # C: keep the inner circle; test the single hull removal at both fixed sizes.
+    m = hull_strip(gray, 2.5)
+    return _two_sizes(m, ocr) if m is not None else None
+
+
 def peeled_circle_strip_reading(peeled, ocr):
     m = hull_strip(255 - peeled, 2.5)
     return _two_sizes(m, ocr) if m is not None else None

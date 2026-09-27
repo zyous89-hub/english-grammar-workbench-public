@@ -106,6 +106,50 @@ class CircleInnerSearchTest(unittest.TestCase):
         self.assertEqual(conflict['reread_conflict'],[[3],[1]])
         self.assertFalse(conflict['circle_search']['adopted'])
 
+    def test_e_relaxes_only_low_original_with_fixed_consensus_and_preserves_other_conflicts(self):
+        crop = stage_tests.StageClassificationTest().crop
+        old = crop(text='③', score=.4)
+        extra = crop(text='2', score=.95, input='inner.png', input_sha256='hash')
+        reads = [dict(pad_y=p, text='②', score=.8) for p in (16, 24)]
+        evidence = dict(method='circle_strip_D-1', reads=reads, previous_retry={'status':'answer_conflict'})
+        apply = lambda row=old, proof=evidence: reconcile(row, extra, proof, allow_low_confidence_consensus=True)
+        self.assertEqual(reconcile(old, extra, evidence)['text'], '③')  # Opt-in only.
+        for method in ('size_stable_C', 'circle_strip_D-1', 'circle_strip_D-2', 'hull_stable', 'enclosure'):
+            proof = dict(evidence, method=method)
+            if method == 'hull_stable':
+                proof['reads'] = [dict(k=k, text='2', score=.8) for k in (2, 2.5, 3)]
+            if method == 'enclosure':
+                proof['confirmation_reads'] = reads
+            result = apply(proof=proof)
+            self.assertEqual(result['text'], '2', method)
+            self.assertTrue(result['circle_search']['low_confidence_consensus'])
+            self.assertEqual(result['circle_search']['previous_retry'], evidence['previous_retry'])
+            self.assertNotIn('reread_conflict', result)
+        for score in (.8, .99, None, float('nan'), float('inf')):
+            result = apply(row=dict(old, score=score))
+            self.assertEqual(result['text'], '③')
+            self.assertEqual(result['reread_conflict'], [[3], [2]])
+        for proof in (
+                dict(evidence, reads=[]), dict(evidence, reads=reads[:1]),
+                dict(evidence, method='unknown'), dict(evidence, method='enclosure'),
+                dict(evidence, reads=[reads[0], dict(reads[1], pad_y=16)]),
+                dict(evidence, reads=[reads[0], dict(reads[1], text='3', score=.99)]),
+                dict(evidence, reads=[reads[0], dict(reads[1], text='6')]),
+                dict(evidence, reads=[reads[0], dict(reads[1], score=.79)]),
+                dict(evidence, reads=[reads[0], dict(reads[1], score=float('nan'))]),
+                dict(evidence, reads=[reads[0], dict(reads[1], score=None)])):
+            self.assertEqual(apply(proof=proof)['text'], '③', proof)
+        self.assertNotIn('reread_conflict', apply(row=dict(old, reread_conflict=[[3], [2]])))
+        self.assertEqual(apply(row=dict(old, reread_conflict=[[3], [1]]))['reread_conflict'], [[3], [1]])
+        accepted = crop(**apply())  # Reclassify the updated OCR as the pipeline does.
+        from tools.classify_grid_stages import question_review
+        review = question_review([accepted, crop(id='other', text='4')], '2',
+                                 dict(matrix=[[1]], inliers=31, median_error=2))
+        self.assertIsNone(review['selection'])
+        self.assertTrue(any(r['rule'] == 'F06' for r in review['reasons']))
+        self.assertEqual(old['text'], '③')
+        self.assertNotIn('reread_conflict', old)
+
     def test_rectangles_nested_frames_and_digit_holes(self):
         gray = np.full((180,180),255,np.uint8)
         cv2.rectangle(gray,(15,15),(165,165),0,3)
