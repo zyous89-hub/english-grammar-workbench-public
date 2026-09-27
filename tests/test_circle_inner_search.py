@@ -150,6 +150,24 @@ class CircleInnerSearchTest(unittest.TestCase):
         self.assertEqual(old['text'], '③')
         self.assertNotIn('reread_conflict', old)
 
+    def test_e_keeps_multiple_original_digits_held_after_single_digit_consensus(self):
+        crop = stage_tests.StageClassificationTest().crop
+        extra = crop(text='4', score=.984, input='inner.png', input_sha256='hash')
+        proof = dict(method='hull_stable',
+                     reads=[dict(k=k, text='4', score=.984) for k in (2, 2.5, 3)])
+        from tools.classify_grid_stages import question_review
+        for text in ('①④', '①②③', '1,4', '1 4', '(1)', '1.'):
+            result = reconcile(crop(text=text, score=.633), extra, proof,
+                               allow_low_confidence_consensus=True)
+            self.assertEqual(result['text'], text)
+            self.assertIn('reread_conflict', result)
+            self.assertFalse(result['circle_search']['adopted'])
+            self.assertFalse(result['circle_search'].get('low_confidence_consensus', False))
+            review = question_review([crop(**result)], '4',
+                                     dict(matrix=[[1]], inliers=31, median_error=2))
+            self.assertIsNone(review['selection'])
+            self.assertTrue(any(r['rule'] == 'F06(re-read)' for r in review['reasons']))
+
     def test_rectangles_nested_frames_and_digit_holes(self):
         gray = np.full((180,180),255,np.uint8)
         cv2.rectangle(gray,(15,15),(165,165),0,3)

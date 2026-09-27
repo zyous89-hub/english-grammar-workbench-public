@@ -113,6 +113,7 @@ def reconcile(original, extra, evidence, *, allow_low_confidence_consensus=False
             digit = to_digit(extra['text'])
             score = original['score']
             agreed = (allow_low_confidence_consensus
+                      and to_digit(original['text']) is not None
                       and isinstance(score, (int, float)) and math.isfinite(score) and score < .8
                       and method in ('hull_stable', 'size_stable_C', 'circle_strip_D-1',
                                      'circle_strip_D-2', 'enclosure')
