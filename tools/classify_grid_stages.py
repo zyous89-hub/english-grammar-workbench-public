@@ -27,6 +27,7 @@ REASONS = {
     '13': '인쇄·필기 혼합 · 조건부 적용 대기',
     '14': '선택 개수 불일치',
     '15': '문항 소속 확인 필요 · 경계 또는 범위 밖 필기',
+    '16': '답 개수 확인 필요 · 답지 정답 개수 불일치',
 }
 
 
@@ -163,6 +164,10 @@ def question_review(regions, answer, alignment, *, f08_exemptions=(), expected_c
     parsed_key = key_answer(answer or '')
     if parsed_key is None:
         stop(None, '12', 'G03', [])
+    elif aligned and proposed and len(parsed_key) >= 2 and len(proposed) != len(parsed_key):
+        # 162: the key may veto the count, never select or repair OCR digits.
+        stop(4, '16', 'F12(key-count)', [r['id'] for r in candidates])
+        reasons[-1]['message'] = f'답 개수 확인 필요 · 답지 정답 {len(parsed_key)}개'
     selection = proposed if not reasons else None
     student_stages = [r['stage'] for r in reasons if r['stage'] is not None]
     # Furthest reached failure is the heading; every contributing reason remains.

@@ -40,7 +40,7 @@ class CountSearchTest(unittest.TestCase):
         self.assertEqual(merged['reread_conflict'],[[1],[1,3]])
         review=question_review([merged],'1,3',self.alignment,expected_count=2)
         self.assertIsNone(review['selection'])
-        self.assertEqual({r['code'] for r in review['reasons']},{'10','14'})
+        self.assertEqual({r['code'] for r in review['reasons']},{'10','14','16'})
         recovered=reconcile(self.crop(text='?',score=.3),new)
         self.assertEqual(recovered['text'],'1,3')
         self.assertNotIn('reread_conflict',recovered)
@@ -55,6 +55,34 @@ class CountSearchTest(unittest.TestCase):
         result=question_review([pair,self.crop(id='third',text='5')],'1,3',self.alignment,expected_count=2)
         self.assertIsNone(result['selection'])
         self.assertEqual(result['reasons'][0]['code'],'10')
+
+    def test_key_count_only_vetoes_and_keeps_instruction_gate_independent(self):
+        for text,key,required,codes in [
+                ('2','1,2,3',None,{'16'}), ('1,2,3','1,2',None,{'16'}),
+                ('2','1,3',1,{'16'}), ('1,2','1,3',3,{'14'}),
+                ('2','1,3',2,{'14','16'}), ('1,2','3,4',2,set()),
+                ('1,2','1,2',2,set()), ('1,2','1',None,set())]:
+            with self.subTest(text=text,key=key,required=required):
+                crop=self.crop(text=text)
+                result=question_review([crop],key,self.alignment,expected_count=required)
+                self.assertEqual(result['proposed_selection'],crop['choice'])
+                self.assertEqual({r['code'] for r in result['reasons']},codes)
+                self.assertEqual(result['selection'],None if codes else crop['choice'])
+                for reason in result['reasons']:
+                    if reason['code']=='16':
+                        self.assertEqual(reason['stage'],4)
+                        self.assertEqual(reason['message'],f'답 개수 확인 필요 · 답지 정답 {len(result["key"])}개')
+        low=self.crop(id='low',score=.2)
+        for exempt in ([],['low']):
+            result=question_review([self.crop(text='2'),low],'1,2,3',self.alignment,f08_exemptions=exempt)
+            self.assertIn('16',{r['code'] for r in result['reasons']})
+            self.assertEqual(any(r['rule']=='F08(b)' for r in result['reasons']),not bool(exempt))
+            self.assertIsNone(result['selection'])
+        for crops in ([],[low],[self.crop(),self.crop(id='other',text='2')]):
+            result=question_review(crops,'1,2',self.alignment)
+            self.assertIsNone(result['proposed_selection'])
+            self.assertNotIn('16',{r['code'] for r in result['reasons']})
+        self.assertEqual(question_review([self.crop()],'?',self.alignment)['reasons'][0]['code'],'12')
 
     def test_transform_keeps_every_nonwhite_pixel(self):
         gray=np.full((20,20),255,np.uint8);gray[5,6]=0;gray[10,12]=220
