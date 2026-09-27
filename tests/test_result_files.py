@@ -155,3 +155,27 @@ class ResultFilesTest(unittest.TestCase):
             self.assertEqual(len(matches),1)
             self.assertIn(f'읽은 내용 4 · 점수 {score:.3f}',matches[0]['label'])
         self.assertIn('테두리 제거 폭 2.5',next(p for p in proof if p['id']=='crop-inner')['label'])
+        payload=json.loads(classification.read_text(encoding='utf-8'))
+        crop=payload['runs'][0]['regions'][0];previous=crop['retry_search']
+        for name in ('pad16','pad24','frame','circle'):
+            shutil.copyfile(self.root/'evidence/demo.png',self.root/f'evidence/{name}.png')
+        crop['retry_search']=dict(previous_text='4',previous_score=.892,text='4',score=.984,
+            input='evidence/pad24.png',adopted=True,previous_retry=previous,
+            frame_removed=str(self.root/'evidence/frame.png'),circle_removed='evidence/circle.png',
+            reads=[dict(pad_y=pad,text='4',score=score,input=f'evidence/pad{pad}.png')
+                   for pad,score in ((16,.991),(24,.984))])
+        atomic_json(classification,payload)
+        export(comparison,classification,self.root,self.initial['assessment_id'],'circle-strip')
+        result=load_result(self.path);proof=result['questions'][0]['evidence_images']
+        self.assertEqual(result['schema_version'],1)
+        self.assertEqual(len(proof),9)  # Context, original, three B, two D, and two masks.
+        self.assertIn('읽은 내용 ④ · 점수 0.294',proof[1]['label'])
+        self.assertIn('동그라미까지 제거 · 4 · 0.991/0.984',next(p for p in proof if p['id']=='crop-inner')['label'])
+        for pad in (16,24):
+            self.assertEqual(sum(f'위아래 여백 {pad}px' in p['label'] for p in proof),1)
+        for width in (2.0,2.5,3.0):
+            self.assertEqual(sum(f'테두리 제거 폭 {width:.1f}' in p['label'] for p in proof),1)
+        self.assertEqual({p['id'] for p in proof if p['id'].endswith('_removed')},
+                         {'crop-frame_removed','crop-circle_removed'})
+        for item in proof:
+            self.assertEqual((self.root/item['path']).read_bytes(),(self.root/'evidence/demo.png').read_bytes())
