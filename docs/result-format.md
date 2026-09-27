@@ -75,6 +75,8 @@
 
 `read_answer`는 채점 확정과 다릅니다. 예를 들어 `read_answer: "2"`, `judgement: "보류"`가 가능합니다. 앱은 답지가 `"2"`라고 임의로 정답으로 바꾸지 않습니다.
 
+선택 표시 기반 교사 확인용 추천은 `evidence_images`에만 추가할 수 있습니다([EGW4 결정0034](decisions/0034-EGW4-choice-mark-recommendations.md)). 이름표 예시는 `추천 ④ · 선택 표시 기반 · 확인 필요`입니다. `read_answer`, `judgement`, `answer_key`, `reasons`에 추천을 복사하지 않으며 앱은 이름표를 해석해 답이나 교사 입력값을 채우지 않습니다. 기존 자동확정 문항에는 추천 근거를 추가하지 않습니다.
+
 ## teacher-corrections.json
 
 ```json
