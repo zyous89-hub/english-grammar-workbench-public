@@ -167,7 +167,7 @@ def assign(source, recognized, output, annotations=None, minimum_overlap=None):
         for hit in association['candidates']:
             q=by_id[hit['question_id']];ident=f"{q['id']}-page-{r['id']}"
             row=dict(r,id=ident,question_id=q['id'],page_crop_id=r['id'],ownership=association,
-                     ownership_review=association['status']!='assigned')
+                     ownership_review=association['status']!='assigned' or r.get('retry_ownership_review', False))
             for note in notes:
                 if all_questions[note['question_id']]['page'] != r['page']:
                     continue

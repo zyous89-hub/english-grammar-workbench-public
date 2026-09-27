@@ -10,7 +10,7 @@ import sys
 import cv2
 import numpy as np
 
-from tools.answer_count_search import reread_image
+from tools.answer_count_search import has_retry_history, reread_image
 from tools.classify_grid_stages import classify, student_choices
 from tools.compare_f08_circles import connected_circles, radius
 
@@ -21,7 +21,7 @@ def eligible(row):
     return (classify(row) == (2, '6') and row['score'] <= .8
             and row['route'] == 'student_candidate' and not row.get('preserved_choices')
             and not row.get('semantic_annotation') and not row.get('reread_conflict')
-            and not row.get('circle_search'))
+            and not has_retry_history(row))
 
 
 def enclosures(gray):
@@ -126,7 +126,7 @@ def run(batch, source, output, model):
     def save(path, data):
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
     rows = read(batch/'results.json')
-    if any(r.get('circle_search') for r in rows):
+    if any(has_retry_history(r) for r in rows):
         raise ValueError('This batch already had its one enclosed-ink search')
     if len({r['id'] for r in rows}) != len(rows):
         raise ValueError('Duplicate crop IDs')

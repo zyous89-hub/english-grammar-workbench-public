@@ -13,12 +13,16 @@ import numpy as np
 from tools.classify_grid_stages import classify, required_answer_count, student_choices
 
 
+def has_retry_history(row):
+    return any(row.get(key) for key in ('count_search', 'circle_search', 'retry_search'))
+
+
 def needs_search(rows, count, alignment):
     if count is None or not alignment or not alignment.get('matrix'):
         return False
     if alignment['inliers'] <= 30 or not math.isfinite(alignment['median_error']) or alignment['median_error'] > 3:
         return False
-    if any(r.get('semantic_annotation') or r.get('count_search') for r in rows):
+    if any(r.get('semantic_annotation') or has_retry_history(r) for r in rows):
         return False
     choices = {tuple(student_choices(r['text'])) for r in rows if classify(r)[0] == 0}
     return len(choices) <= 1 and max(map(len, choices), default=0) < count
@@ -59,7 +63,7 @@ def run(batch, source, output, model):
     def save(path, value):
         path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
     rows = read(batch/'results.json')
-    if any(r.get('count_search') for r in rows):
+    if any(has_retry_history(r) for r in rows):
         raise ValueError('This batch already had its one count-search pass')
     questions = read(source/'questions.json')
     pages = {p['page']:p for p in read(source/'pages.json')}
