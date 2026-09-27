@@ -130,3 +130,28 @@ class ResultFilesTest(unittest.TestCase):
         response=urlopen(Request(url+'/api/correction',data=data,headers={'Origin':url,'X-Review-Token':token,'Content-Type':'application/json'}))
         self.assertEqual(json.loads(response.read())['rows'][0]['effective']['read_answer'],'2,3')
         self.assertTrue((self.root/'teacher-corrections.json').exists())
+
+    def test_retry_widths_export_all_readings_without_duplicate_middle_image(self):
+        comparison=self.root/'comparison.json';classification=self.root/'classification.json'
+        reads=[]
+        for index,(width,text,score) in enumerate([(2.0,'4',.884),(2.5,'4',.892),(3.0,'4',.830)]):
+            path=self.root/f'evidence/width-{index}.png'
+            shutil.copyfile(self.root/'evidence/demo.png',path)
+            reads.append(dict(k=width,text=text,score=score,
+                              input=str(path) if index != 2 else f'evidence/width-{index}.png'))
+        atomic_json(comparison,{'rows':[dict(id='demo-q1',page=1,context='evidence/demo.png',
+            review=dict(status='보류',proposed_selection=[4],key=[2,4],stage=4,candidates=['crop'],
+                        reasons=[dict(code='14',stage=4,crop_ids=['crop'])]))]})
+        atomic_json(classification,{'runs':[{'questions':[{'id':'demo-q1'}],'regions':[
+            dict(id='crop',question='demo-q1',input='evidence/demo.png',text='4',score=.892,
+                 retry_search=dict(previous_text='④',previous_score=.294,text='4',score=.892,
+                                   input='evidence/width-1.png',adopted=True,reads=reads))]}]})
+        export(comparison,classification,self.root,self.initial['assessment_id'],'three-widths')
+        proof=load_result(self.path)['questions'][0]['evidence_images']
+        self.assertEqual(len(proof),5)  # Context, original OCR, and three width inputs.
+        self.assertIn('읽은 내용 ④ · 점수 0.294',proof[1]['label'])
+        for width,score in [(2.0,.884),(2.5,.892),(3.0,.830)]:
+            matches=[p for p in proof if f'테두리 제거 폭 {width:.1f}' in p['label']]
+            self.assertEqual(len(matches),1)
+            self.assertIn(f'읽은 내용 4 · 점수 {score:.3f}',matches[0]['label'])
+        self.assertIn('테두리 제거 폭 2.5',next(p for p in proof if p['id']=='crop-inner')['label'])

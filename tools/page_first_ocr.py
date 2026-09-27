@@ -130,7 +130,51 @@ def extend_column_bottoms(questions, page_heights):
         q['zone'] = [*q['zone'][:3], page_heights[(q['set'], q['page'])]]
 
 
-def assign(source, recognized, output, annotations=None, minimum_overlap=None):
+def enclosing_assignments(rows, associations):
+    """Resolve uncertain ownership from fixed post-recognition answer candidates."""
+    from tools.classify_grid_stages import classify
+
+    by_id = {r['id']: r for r in rows}
+    anchors = []
+    for a in associations:
+        r = by_id[a['crop_id']]
+        if (a['status'] == 'assigned' and len(a['candidates']) == 1
+                and not r.get('retry_ownership_review') and not r.get('reread_conflict')
+                and classify(dict(r, ownership_review=False)) == (0, 'candidate')):
+            anchors.append((r, a['candidates'][0]['question_id']))
+    changes = []
+    for a in associations:
+        r = by_id[a['crop_id']]
+        if a['status'] == 'assigned' or classify(r)[0] == 1:
+            continue
+        l, t, rr, b = r['box']
+        contained = []
+        for anchor, question_id in anchors:
+            if anchor['page_id'] != r['page_id'] or anchor['id'] == r['id']:
+                continue
+            x, y, right, bottom = anchor['box']
+            area = (right - x) * (bottom - y)
+            if area <= 0:
+                raise ValueError('Invalid answer candidate box')
+            fraction = max(0, min(rr, right) - max(l, x)) * max(0, min(b, bottom) - max(t, y)) / area
+            if fraction >= .8:
+                contained.append(dict(crop_id=anchor['id'], question_id=question_id,
+                                      covered_fraction=fraction, box=anchor['box']))
+        owners = {item['question_id'] for item in contained}
+        if len(owners) != 1:
+            continue
+        question_id = next(iter(owners))
+        evidence = dict(previous_status=a['status'], previous_candidates=a['candidates'],
+                        threshold=.8, anchors=contained)
+        overlap = next((hit['overlap_fraction'] for hit in a.get('intersections', a['candidates'])
+                        if hit['question_id'] == question_id), 0)
+        a.update(status='assigned', candidates=[dict(question_id=question_id, overlap_fraction=overlap)],
+                 enclosing_ownership=evidence)
+        changes.append(dict(crop_id=r['id'], question_id=question_id, box=r['box'], **evidence))
+    return changes
+
+
+def assign(source, recognized, output, annotations=None, minimum_overlap=None, enclosing_candidates=False):
     if output.exists():
         raise ValueError('Use a fresh association output')
     raw = read(recognized/'results.json')
@@ -160,31 +204,38 @@ def assign(source, recognized, output, annotations=None, minimum_overlap=None):
         q['segments']=[]
     by_id={q['id']:q for q in questions}
     for r in raw:
+        for note in notes:
+            if all_questions[note['question_id']]['page'] != r['page']:
+                continue
+            a,c,d,e=note['box'];l,t,rr,b=r['box']
+            if max(a,l)<min(d,rr) and max(c,t)<min(e,b):
+                r['semantic_annotation']=note['semantic_annotation'] if note['source_input_sha256']==r['source_input_sha256'] else dict(meaning='previous_annotation_overlap_requires_review',source_crop_id=note['id'])
         association=associate(r['ink_box'],[q for q in questions if q['page']==r['page']],minimum_overlap)
         associations.append(dict(crop_id=r['id'],box=r['box'],ink_box=r['ink_box'],**association))
+    changes = enclosing_assignments(raw, associations) if enclosing_candidates else []
+    for r, saved_association in zip(raw, associations):
+        association={key:value for key,value in saved_association.items() if key not in ('crop_id','box','ink_box')}
         if not association['candidates']:
             unassigned.append(r)
         for hit in association['candidates']:
             q=by_id[hit['question_id']];ident=f"{q['id']}-page-{r['id']}"
             row=dict(r,id=ident,question_id=q['id'],page_crop_id=r['id'],ownership=association,
                      ownership_review=association['status']!='assigned' or r.get('retry_ownership_review', False))
-            for note in notes:
-                if all_questions[note['question_id']]['page'] != r['page']:
-                    continue
-                a,c,d,e=note['box'];l,t,rr,b=r['box']
-                if max(a,l)<min(d,rr) and max(c,t)<min(e,b):
-                    row['semantic_annotation']=note['semantic_annotation'] if note['source_input_sha256']==r['source_input_sha256'] else dict(meaning='previous_annotation_overlap_requires_review',source_crop_id=note['id'])
             results.append(row);q['segments'].append(ident)
     evaluation=[dict(id=q['id'],page=q['page'],selection=None,key_answer=q['key']['answer'],status='보류',candidates=[],context=q['context']) for q in questions]
     save(output/'results.json',results);save(output/'evaluation.json',evaluation)
     save(output/'associations.json',associations);save(output/'unassigned.json',unassigned)
     save(output/'questions.json',questions)
-    save(output/'provenance.json',dict(method='145 page-wide recognition before question association; no OCR text/key used for ownership',
+    if enclosing_candidates:
+        save(output/'enclosing-ownership.json',changes)
+    save(output/'provenance.json',dict(method=('161 fixed post-recognition candidate containment; no answer key or transcription'
+                                              if enclosing_candidates else '145 page-wide recognition before question association; no OCR text/key used for ownership'),
                                       fresh_result_sha256=sha(recognized/'results.json'),page_crop_count=len(raw),assigned_links=len(results),
                                       unassigned=len(unassigned),ambiguous=sum(a['status']!='assigned' for a in associations),
                                       source_ocr=str((recognized/'results.json').resolve()),minimum_overlap=minimum_overlap,
                                       bottom_boundary='last question in each column extends to page bottom',
-                                      overlap_basis='ink bounding rectangle before crop padding'))
+                                      overlap_basis='ink bounding rectangle before crop padding',
+                                      enclosing_candidates=enclosing_candidates,enclosing_changes=len(changes)))
     print(json.dumps(dict(crops=len(raw),links=len(results),unassigned=len(unassigned),questions=len(questions))),flush=True)
 
 
@@ -193,6 +244,7 @@ if __name__=='__main__':
     prep=commands.add_parser('prepare');prep.add_argument('source',type=Path);prep.add_argument('output',type=Path);prep.add_argument('--pages',type=int,nargs='+',required=True)
     assigner=commands.add_parser('assign');assigner.add_argument('source',type=Path);assigner.add_argument('recognized',type=Path);assigner.add_argument('output',type=Path);assigner.add_argument('--annotations',type=Path)
     assigner.add_argument('--minimum-overlap',type=float)
+    assigner.add_argument('--enclosing-candidates',action='store_true')
     args=parser.parse_args()
     if args.command=='prepare':prepare(args.source,args.output,args.pages)
-    else:assign(args.source,args.recognized,args.output,args.annotations,args.minimum_overlap)
+    else:assign(args.source,args.recognized,args.output,args.annotations,args.minimum_overlap,args.enclosing_candidates)

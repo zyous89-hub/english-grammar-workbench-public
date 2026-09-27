@@ -52,10 +52,21 @@ def export(comparison, classification, output, assessment_id, rules_version, tit
             score = '미실행' if shown_score is None else f"점수 {shown_score:.3f}"
             proof.append(evidence((classification.parent/r['input']).resolve(), ident,
                                   f"OCR 조각 {ident} · 읽은 내용 {shown_text or '없음'} · {score}"))
+            retry_images = {}
             if inner.get('input'):
-                proof.append(evidence((classification.parent/inner['input']).resolve(), ident+'-inner',
+                path = (classification.parent/inner['input']).resolve()
+                item = evidence(path, ident+'-inner',
                     f"{'추가 재인식' if r.get('retry_search') else '도형 내부 재인식'} {ident} · 읽은 내용 {inner['text'] or '없음'} · 점수 {inner['score']:.3f} · "
-                    + ('후보 채택' if inner.get('adopted') else '보류 유지')))
+                    + ('후보 채택' if inner.get('adopted') else '보류 유지'))
+                proof.append(item); retry_images[path] = item
+            for number, reading in enumerate(inner.get('reads', []), 1):
+                path = (classification.parent/reading['input']).resolve()
+                label = f"테두리 제거 폭 {reading['k']:.1f} · 읽은 내용 {reading['text'] or '없음'} · 점수 {reading['score']:.3f}"
+                if path in retry_images:
+                    retry_images[path]['label'] += ' · ' + label
+                else:
+                    item = evidence(path, ident+f'-retry-{number}', label)
+                    proof.append(item); retry_images[path] = item
         questions.append(dict(id=q['id'], label=f"{q['page']}쪽 · {q['id']}",
              judgement=review['status'], read_answer=answer(review['proposed_selection']),
              answer_key=answer(review['key']), review_stage=review['stage'] or None,
