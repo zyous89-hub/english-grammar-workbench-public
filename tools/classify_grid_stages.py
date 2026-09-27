@@ -26,6 +26,7 @@ REASONS = {
     '12': '답지 해석 실패',
     '13': '인쇄·필기 혼합 · 조건부 적용 대기',
     '14': '선택 개수 불일치',
+    '15': '문항 소속 확인 필요 · 경계 또는 범위 밖 필기',
 }
 
 
@@ -67,6 +68,8 @@ def classify(r):
         return 3, 'route_unknown'
     if not student_choices(r['text']):
         return 3, '7'
+    if r.get('ownership_review'):
+        return 3, '15'
     return 0, 'candidate'
 
 
@@ -130,6 +133,9 @@ def question_review(regions, answer, alignment, *, f08_exemptions=(), expected_c
     if not aligned:
         stop(1, '2', 'D12', [])
     else:
+        ownership = [r['id'] for r in regions if r.get('ownership_review') and r['stage'] != 1]
+        if ownership:
+            stop(3, '15', 'page_ownership', ownership)
         unknown = [r['id'] for r in regions if r.get('semantic_annotation')]
         if unknown:
             stop(3, '11', 'F10', unknown)
@@ -149,6 +155,8 @@ def question_review(regions, answer, alignment, *, f08_exemptions=(), expected_c
                     stop(3, reason, 'F08(b)', related)
         if not candidates:
             for stage, code in sorted({(r['stage'], r['reason']) for r in regions}):
+                if code == '15' and ownership:
+                    continue
                 stop(stage, code, 'no_candidate', [r['id'] for r in regions if r['reason'] == code])
             if not regions:
                 stop(1, '2', 'no_crop', [])
@@ -234,6 +242,7 @@ def build(root, output, *, source=None, transcription=None, selected_pages=None,
                                 choice=student_choices(r['text']) if stage == 0 else None,
                                 semantic_annotation=r.get('semantic_annotation'),
                                 reread_conflict=r.get('reread_conflict'),
+                                ownership_review=r.get('ownership_review', False),
                                 circle_search=({**r['circle_search'], 'input':link(r['circle_search']['input'])}
                                     if (r.get('circle_search') or {}).get('input') else r.get('circle_search')),
                                 mixed_print=(not r['preserved_choices'] and not r['answer_excluded']
