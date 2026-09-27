@@ -5,9 +5,11 @@ import json
 from pathlib import Path
 
 from src.result_files import image_path, load_state
+from src.result_files import review_result_path, review_policy_label
 
 
 def package(result_path, output):
+    result_path = review_result_path(result_path)
     state = load_state(result_path)
     images = {}
     for q in state['result']['questions']:
@@ -28,7 +30,7 @@ def package(result_path, output):
     page = page.replace('교사 수정 저장</button>', '교사 수정 JSON 다운로드</button>')
     page = page.replace('자동 결과 파일은 바꾸지 않습니다.', 'HTML에는 수정이 저장되지 않습니다. 다운로드한 JSON을 보관하고, 다시 열 때 위에서 불러오세요.')
     page = page.replace('<meta charset="utf-8">', '<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'nonce-offline-review\'; style-src \'unsafe-inline\'; img-src data:; connect-src \'none\'; base-uri \'none\'">')
-    page = page.replace('__TOKEN__', 'offline-review')
+    page = page.replace('__TOKEN__', 'offline-review').replace('__POLICY_LABEL__', review_policy_label(result_path))
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open('x', encoding='utf-8') as stream:
         stream.write(page)

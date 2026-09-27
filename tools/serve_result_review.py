@@ -7,10 +7,11 @@ import secrets
 from urllib.parse import parse_qs, urlparse
 
 from src.result_files import ResultFileError, image_path, load_result, load_state, save_correction
+from src.result_files import review_result_path, review_policy_label
 
 
 def make_server(result_path, port=8140):
-    result_path = result_path.resolve()
+    result_path = review_result_path(result_path).resolve()
     load_state(result_path)  # Refuse invalid results/corrections before opening a listener.
     token = secrets.token_urlsafe(24)
     template = Path(__file__).parents[1]/'src/result-review.html'
@@ -38,7 +39,7 @@ def make_server(result_path, port=8140):
             parsed = urlparse(self.path)
             try:
                 if parsed.path == '/':
-                    page = template.read_text(encoding='utf-8').replace('__TOKEN__', token)
+                    page = template.read_text(encoding='utf-8').replace('__TOKEN__', token).replace('__POLICY_LABEL__', review_policy_label(result_path))
                     self.send_bytes(200, page.encode('utf-8'), 'text/html; charset=utf-8')
                 elif parsed.path == '/api/state':
                     self.send_json(200, load_state(result_path))

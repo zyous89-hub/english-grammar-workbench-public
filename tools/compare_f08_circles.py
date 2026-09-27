@@ -196,7 +196,7 @@ def run(source, pages, transcription, output, selected_pages=None, selected_ques
 
 
 def report(path,mode,summary,rows):
-    titles={'broad':'사용자안 · 동그라미 조각 예외','duplicate':'제안안 · 숫자와 중복된 동그라미 조각만 예외','compare':'F08(b) 두 조건 비교'}
+    titles={'broad':'참고 · 사용자안 · 독립 검증에서 틀린 자동확정 1건','duplicate':'기본 · 제안안 · 숫자와 중복된 동그라미 조각만 예외','compare':'F08(b) 두 조건 비교'}
     esc=lambda s:html.escape(str(s))
     common=summary['broad'] if mode=='compare' else summary
     content='<p>원 검출: '+('연결된 표시 보조 검출 적용' if common['circle_detector']=='connected-arcs' else '기존 윤곽 검출')+'</p>'
@@ -204,7 +204,8 @@ def report(path,mode,summary,rows):
         content+=f'<p>지시문에 답 개수가 명시된 문항: {common["explicit_count_questions"]}개. 숫자 후보가 있으나 개수가 맞지 않아 F12로 보류한 문항: {common["count_mismatch_questions"]}개. 후보 자체가 없는 문항은 기존 인식 실패 사유를 유지합니다.</p>'
     content+='<p><strong>전사 일치</strong>는 자동 확정한 학생 답이 확인 전사와 같다는 뜻입니다. <strong>채점 정답·오답</strong>은 그 학생 답을 답지와 비교한 결과입니다. 보류는 인식 실패와 같은 뜻이 아닙니다.</p><p>사용자안은 검출된 동그라미 조각의 F08(b) 전파를 면제합니다. 제안안은 같은 숫자를 둘러싼 중복 표시라는 위치·내부 잉크 조건까지 충족해야 면제합니다. 낮은 점수의 숫자를 답으로 승격하지는 않습니다.</p>'
     if mode=='compare':
-        for key,s in summary.items():
+        for key in ('duplicate', 'broad'):
+            s=summary[key]
             content+=f'<h2><a href="{key}.html">{titles[key]}</a></h2><p>전사 일치 {s["counts"].get("전사 일치",0)} · 보류 {s["counts"].get("보류",0)} · 전사 불일치 {s["counts"].get("전사 불일치",0)} · 미확정 답 자동 확정 오류 {s["counts"].get("미확정 답 자동 확정 오류",0)} · 오답→정답 {s["false_correct"]}</p>'
             for page,counts in s['by_page'].items():
                 content+=f'<p>{page}쪽 · {counts["questions"]}문항: 전사 일치 {counts["counts"].get("전사 일치",0)}, 보류 {counts["counts"].get("보류",0)} (기준 전사 일치 {counts["baseline"].get("전사 일치",0)}, 보류 {counts["baseline"].get("보류",0)})</p>'

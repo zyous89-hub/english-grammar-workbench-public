@@ -1,5 +1,7 @@
 # 앱 소스
 
+2026-09-28 EGW4: 기본 정책은 제안안입니다. 양안 결과 폴더(하위에 `duplicate/result.json`, `broad/result.json`)를 화면/단일 HTML 도구에 넘기면 제안안을 엽니다. 사용자안 파일을 명시하면 참고 경고와 함께 열며 두 정책의 판독·채점 규칙은 바뀌지 않습니다. `python -m tools.serve_result_review <양안폴더>` 또는 `python -m tools.package_result_review <양안폴더> <새HTML>`을 사용합니다.
+
 2026-09-27: [파일 계약 v1](../docs/result-format.md), 계약 검증·교사 수정 저장 모듈 `result_files.py`, 검증 화면 `result-review.html`을 구현했습니다. 설치형 앱·파일 선택 화면·OCR 실행 연결은 아직 없습니다.
 
 검증 화면은 사유 목록이나 채점 규칙을 갖지 않습니다. 엔진이 만든 결과의 문구와 이미지 이름표를 그대로 표시하며, 교사가 지정한 답과 판정을 별도 파일에 저장합니다.

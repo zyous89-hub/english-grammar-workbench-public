@@ -10,6 +10,18 @@ import tempfile
 JUDGEMENTS = ('정답', '오답', '보류')
 
 
+def review_result_path(path):
+    """A two-policy folder opens duplicate; an explicit result stays explicit."""
+    if path.is_dir():
+        return path/'duplicate/result.json' if (path/'duplicate').is_dir() else path/'result.json'
+    return path
+
+
+def review_policy_label(path):
+    return {'duplicate': '기본 · 제안안',
+            'broad': '참고 · 사용자안 · 독립 검증에서 틀린 자동확정 1건'}.get(path.parent.name, '')
+
+
 class ResultFileError(ValueError):
     pass
 

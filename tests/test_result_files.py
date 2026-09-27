@@ -17,6 +17,31 @@ from tools.package_result_review import package
 
 
 class ResultFilesTest(unittest.TestCase):
+    def test_default_review_policy_is_duplicate_and_broad_is_explicit_reference(self):
+        from src.result_files import review_result_path, review_policy_label
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = Path(__file__).parent/'fixtures/result-demo'
+            for policy in ('broad', 'duplicate'):
+                shutil.copytree(fixture, root/policy)
+                data = load_result(root/policy/'result.json')
+                data['title'] = policy
+                atomic_json(root/policy/'result.json', data)
+            self.assertEqual(review_result_path(root), root/'duplicate/result.json')
+            self.assertEqual(review_result_path(root/'broad/result.json'), root/'broad/result.json')
+            self.assertIn('기본', review_policy_label(review_result_path(root)))
+            self.assertIn('틀린 자동확정 1건', review_policy_label(root/'broad/result.json'))
+            package(root, root/'default.html')
+            page = (root/'default.html').read_text(encoding='utf-8')
+            payload = json.loads(page.split('const portableData=',1)[1].split(';\n',1)[0])
+            self.assertEqual(payload['result']['title'], 'duplicate')
+            self.assertIn('기본 · 제안안', page)
+            from tools.package_comparison_report import package as compare_package
+            for name in ('report', 'broad', 'duplicate'):
+                (root/(name+'.html')).write_text('<h1>'+name+'</h1>', encoding='utf-8')
+            compare_package(root, root/'comparison.html')
+            self.assertIn("showReport('duplicate');</script>", (root/'comparison.html').read_text(encoding='utf-8'))
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
