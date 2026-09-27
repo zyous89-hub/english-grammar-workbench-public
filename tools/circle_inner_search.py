@@ -130,15 +130,34 @@ def run(batch, source, output, model):
         raise ValueError('This batch already had its one enclosed-ink search')
     if len({r['id'] for r in rows}) != len(rows):
         raise ValueError('Duplicate crop IDs')
-    questions = {q['id']:q for q in read(source/'questions.json')}
-    pages = {p['page']:p for p in read(source/'pages.json')}
+    page_wide = all('question_id' not in r for r in rows)
+    if not page_wide and any('question_id' not in r for r in rows):
+        raise ValueError('Mixed page and question crops')
+    questions = {} if page_wide else {q['id']:q for q in read(source/'questions.json')}
+    page_rows = read(source/'pages.json')
+    pages = {p['id'] if page_wide else p['page']:p for p in page_rows}
+    page_bounds = {}
+    if page_wide:
+        # Before ownership, the intact physical crop is bounded by its page only.
+        for ident in {r['page_id'] for r in rows}:
+            raw = (source/'pages'/f'{ident}-original.png').read_bytes()
+            tracked[str((source/'pages'/f'{ident}-original.png').resolve())] = hashlib.sha256(raw).hexdigest()
+            image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                raise ValueError(f'Invalid reference page: {ident}')
+            page_bounds[ident] = [0, 0, image.shape[1], image.shape[0]]
     output.mkdir(parents=True); inputs = output/'inputs'; inputs.mkdir()
     prepared, trace = [], {}
     for row in rows:
         if not eligible(row):
             continue
-        q = questions[row['question_id']]; page = pages[q['page']]
-        x, y, X, Y = row['box']; a, b, A, B = q['zone']
+        if page_wide:
+            page = pages[row['page_id']]; bounds = page_bounds[row['page_id']]
+            if page['page'] != row['page']:
+                raise ValueError('Crop page does not match source page')
+        else:
+            q = questions[row['question_id']]; page = pages[q['page']]; bounds = q['zone']
+        x, y, X, Y = row['box']; a, b, A, B = bounds
         if (not page.get('matrix') or page['inliers'] <= 30 or not math.isfinite(page['median_error'])
                 or page['median_error'] > 3 or not (a <= x < X <= A and b <= y < Y <= B)):
             trace[row['id']] = dict(status='alignment_or_bounds', attempts=0)
@@ -174,9 +193,14 @@ def run(batch, source, output, model):
                 dict(r, circle_search=trace[r['id']]) if r['id'] in trace else r for r in rows]
     shared = output/'shared-batch'; shared.mkdir()
     save(shared/'results.json', combined)
-    (shared/'evaluation.json').write_bytes((batch/'evaluation.json').read_bytes())
+    if page_wide:
+        timing = read(batch/'timing.json')
+        save(shared/'timing.json', timing)  # Original page scope; extra OCR timing stays separate.
+    else:
+        (shared/'evaluation.json').write_bytes((batch/'evaluation.json').read_bytes())
     save(shared/'provenance.json', dict(note=f'140: 낮은 점수 필기 중 동그라미·네모 안에서 분리 가능한 내부 획 {len(extra)}조각만 한 차례 추가 OCR. 기존 결과 보존.',
          method='140 bounded circle/rectangle inner search; no key/transcription-guided choice',
+         recognition_scope='page_before_ownership' if page_wide else 'question_crop',
          fresh_result_sha256=hashlib.sha256((shared/'results.json').read_bytes()).hexdigest(),
          parent_result_sha256=tracked[str((batch/'results.json').resolve())], source_hashes=tracked))
     for path, digest in tracked.items():

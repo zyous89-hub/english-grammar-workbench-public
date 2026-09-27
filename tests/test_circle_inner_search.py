@@ -1,13 +1,62 @@
 import unittest
+import json
+import hashlib
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 import cv2
 import numpy as np
 
-from tools.circle_inner_search import eligible, inner_image, reconcile
+from tools.circle_inner_search import eligible, inner_image, reconcile, run
 from tests import test_stage_classification as stage_tests
 
 
 class CircleInnerSearchTest(unittest.TestCase):
+    def test_page_reread_once_before_ownership_preserves_legacy_bounds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/'source';batch=root/'batch'
+            (source/'pages').mkdir(parents=True);batch.mkdir()
+            save=lambda p,v:p.write_text(json.dumps(v),encoding='utf-8')
+            load=lambda p:json.loads(p.read_text(encoding='utf-8'))
+            cv2.imwrite(str(source/'pages/C-01-original.png'),np.full((200,200),255,np.uint8))
+            save(source/'pages.json',[dict(id='C-01',page=1,matrix=[[1]],inliers=31,median_error=2)])
+            save(source/'questions.json',[dict(id='q1',set='C',page=1,zone=[0,0,200,100],key={'answer':'3'},context='context.jpg')])
+            image=batch/'crop.png';cv2.imwrite(str(image),np.full((40,40),255,np.uint8))
+            digest=hashlib.sha256(image.read_bytes()).hexdigest()
+            crop=stage_tests.StageClassificationTest().crop
+            row=crop(text='0',score=.2,page=1,page_id='C-01',box=[20,120,60,160],ink_box=[24,124,56,156],
+                     input=str(image),input_sha256=digest,source_input=str(image),source_input_sha256=digest)
+            save(batch/'results.json',[row,dict(row,id='outside',box=[20,190,60,210])])
+            save(batch/'timing.json',{'inputs':str(batch)})
+            save(batch/'provenance.json',{'pages':[1]})
+            def recognize(command,check):
+                prepared=load(Path(command[3])/'regions.json')
+                self.assertEqual(len(prepared),1)
+                output=Path(command[5]);output.mkdir()
+                save(output/'results.json',[dict(prepared[0],text='3',score=.9,ocr_executed=True)])
+            with patch('tools.circle_inner_search.inner_image',return_value=(np.full((40,40),255,np.uint8),dict(status='prepared'))), patch('tools.circle_inner_search.subprocess.run',side_effect=recognize) as ocr:
+                run(batch,source,root/'page',root/'model')
+                self.assertEqual(ocr.call_count,1)
+                shared=root/'page/shared-batch';result=load(shared/'results.json')[0]
+                self.assertNotIn('question_id',result)
+                self.assertEqual(result['text'],'3')
+                self.assertEqual(result['circle_search']['attempts'],1)
+                outside=load(shared/'results.json')[1]['circle_search']
+                self.assertEqual(outside,dict(status='alignment_or_bounds',attempts=0))
+                self.assertEqual(load(shared/'timing.json'),load(batch/'timing.json'))
+                with self.assertRaises(ValueError):run(shared,source,root/'repeat',root/'model')
+                self.assertFalse((root/'repeat').exists())
+                from tools.page_first_ocr import assign
+                assign(source,shared,root/'assigned',minimum_overlap=.7)
+                assigned=load(root/'assigned/results.json')[0]
+                self.assertEqual(assigned['question_id'],'q1')
+                self.assertTrue(assigned['circle_search']['adopted'])
+                # Old question-crop calls still enforce their original zone.
+                save(batch/'results.json',[dict(row,question_id='q1')]);save(batch/'evaluation.json',[])
+                run(batch,source,root/'legacy',root/'model')
+                self.assertEqual(ocr.call_count,1)
+                self.assertEqual(load(root/'legacy/plan.json')['crops']['a']['status'],'alignment_or_bounds')
+
     def test_trigger_keeps_existing_gates_and_threshold(self):
         crop = stage_tests.StageClassificationTest().crop
         for text in ('0', '０', '①', '⑧', '①③', '1', 'O', 'ⓐ', '?', '10'):
