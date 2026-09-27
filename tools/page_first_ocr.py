@@ -111,6 +111,25 @@ def prepare(source, output, selected_pages):
     print(json.dumps(dict(pages=selected_pages,regions=len(rows),question_assignment=False)),flush=True)
 
 
+def extend_column_bottoms(questions, page_heights):
+    """Extend only the spatially last question in each existing column."""
+    columns = {}
+    for q in questions:
+        l, t, r, b = q['zone']
+        height = page_heights[(q['set'], q['page'])]
+        if not 0 <= t < b <= height or l >= r:
+            raise ValueError('Question zone outside page or invalid')
+        columns.setdefault((q['set'], q['page'], l, r), []).append(q)
+    for group in columns.values():
+        bottom = max(q['zone'][1] for q in group)
+        last = [q for q in group if q['zone'][1] == bottom]
+        if len(last) != 1:
+            raise ValueError('Column has no unique last question')
+        q = last[0]
+        q['zone_before_bottom_extension'] = list(q['zone'])
+        q['zone'] = [*q['zone'][:3], page_heights[(q['set'], q['page'])]]
+
+
 def assign(source, recognized, output, annotations=None, minimum_overlap=None):
     if output.exists():
         raise ValueError('Use a fresh association output')
@@ -126,6 +145,14 @@ def assign(source, recognized, output, annotations=None, minimum_overlap=None):
     if not {r['page'] for r in raw} <= set(scope):
         raise ValueError('OCR page scope mismatch')
     questions = [q for q in read(source/'questions.json') if q['page'] in scope]
+    heights = {}
+    for page in read(source/'pages.json'):
+        if page['page'] in scope:
+            image = cv2.imread(str(source/'pages'/f"{page['id']}-original.png"), 0)
+            if image is None:
+                raise ValueError('Page image required for bottom boundary')
+            heights[(page['id'].rsplit('-', 1)[0], page['page'])] = image.shape[0]
+    extend_column_bottoms(questions, heights)
     notes = [r for r in read(annotations) if r.get('semantic_annotation')] if annotations else []
     all_questions = {q['id']:q for q in read(source/'questions.json')}
     output.mkdir(parents=True); results=[]; associations=[]; unassigned=[]
@@ -156,6 +183,7 @@ def assign(source, recognized, output, annotations=None, minimum_overlap=None):
                                       fresh_result_sha256=sha(recognized/'results.json'),page_crop_count=len(raw),assigned_links=len(results),
                                       unassigned=len(unassigned),ambiguous=sum(a['status']!='assigned' for a in associations),
                                       source_ocr=str((recognized/'results.json').resolve()),minimum_overlap=minimum_overlap,
+                                      bottom_boundary='last question in each column extends to page bottom',
                                       overlap_basis='ink bounding rectangle before crop padding'))
     print(json.dumps(dict(crops=len(raw),links=len(results),unassigned=len(unassigned),questions=len(questions))),flush=True)
 

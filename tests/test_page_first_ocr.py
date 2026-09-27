@@ -5,11 +5,30 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from tools.page_first_ocr import page_regions, associate, assign
+from tools.page_first_ocr import page_regions, associate, assign, extend_column_bottoms
 from tests import test_stage_classification as stage_tests
 
 
 class PageFirstTests(unittest.TestCase):
+    def test_bottom_extension_respects_columns_pages_and_other_boundaries(self):
+        questions=[dict(id=ident,set='C',page=page,zone=zone) for ident,page,zone in [
+            ('left-last',2,[5,50,50,80]),('right-last',2,[50,30,95,80]),
+            ('left-first',2,[5,10,50,50]),('other-page',3,[5,10,50,80])]]
+        extend_column_bottoms(questions,{('C',2):100,('C',3):120})
+        self.assertEqual([q['zone'][3] for q in questions],[100,100,50,120])
+        for threshold in (None,.5,.6,.7):
+            for box,expected in [([10,85,20,95],'left-last'),([60,85,70,95],'right-last')]:
+                result=associate(box,questions[:3],threshold)
+                self.assertEqual(result['status'],'assigned')
+                self.assertEqual(result['candidates'],[dict(question_id=expected,overlap_fraction=1)])
+        self.assertEqual(associate([45,85,55,95],questions[:3],.5)['status'],'ambiguous')
+        self.assertEqual(associate([0,85,4,95],questions[:3])['status'],'unassigned')
+        self.assertEqual(associate([10,0,20,5],questions[:3])['status'],'unassigned')
+        self.assertEqual(associate([10,110,20,115],questions[:3])['status'],'unassigned')
+        self.assertEqual(questions[0]['zone_before_bottom_extension'],[5,50,50,80])
+        with self.assertRaises(ValueError):
+            extend_column_bottoms(questions,{('C',2):70,('C',3):120})
+
     def test_area_thresholds_keep_ties_and_unmatched_ink_for_review(self):
         questions=[dict(id='upper',zone=[0,0,100,60]),dict(id='lower',zone=[0,60,100,100])]
         for threshold in (.5,.6):
@@ -59,11 +78,16 @@ class PageFirstTests(unittest.TestCase):
             save(recognized/'results.json',[])
             save(recognized/'timing.json',{'inputs':str(inputs)})
             save(inputs/'provenance.json',{'pages':[5]})
-            save(source/'questions.json',[dict(id='q1',page=5,zone=[0,0,20,20],key={'answer':'①'},context='context.jpg')])
+            save(source/'questions.json',[dict(id='q1',set='C',page=5,zone=[0,0,20,20],key={'answer':'①'},context='context.jpg')])
+            save(source/'pages.json',[dict(id='C-05',page=5)])
+            (source/'pages').mkdir()
+            cv2.imwrite(str(source/'pages/C-05-original.png'),np.full((30,20),255,np.uint8))
             assign(source,recognized,root/'assigned')
             result=json.loads((root/'assigned/evaluation.json').read_text(encoding='utf-8'))
             self.assertEqual([q['id'] for q in result],['q1'])
             self.assertEqual(result[0]['status'],'보류')
+            saved=json.loads((root/'assigned/questions.json').read_text(encoding='utf-8'))
+            self.assertEqual(saved[0]['zone'],[0,0,20,30])
 
 
 if __name__=='__main__':
