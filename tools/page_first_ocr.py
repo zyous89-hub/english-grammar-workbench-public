@@ -42,8 +42,10 @@ def page_regions(aligned, original):
     return sorted(regions, key=lambda r: (r['box'][1], r['box'][0], r['box'][3], r['box'][2]))
 
 
-def associate(box, questions):
+def associate(box, questions, minimum_overlap=None):
     """Geometry only: no OCR text, answer key, confidence or transcription input."""
+    if minimum_overlap is not None and not .5 <= minimum_overlap <= 1:
+        raise ValueError('Minimum overlap must be between 0.5 and 1')
     l, t, r, b = box
     if l >= r or t >= b:
         raise ValueError('Invalid ink box')
@@ -55,7 +57,14 @@ def associate(box, questions):
             hits.append(dict(question_id=q['id'], overlap_fraction=area/((r-l)*(b-t))))
     status = ('assigned' if len(hits) == 1 and hits[0]['overlap_fraction'] == 1 else
               'ambiguous' if len(hits) > 1 else 'outside_zone' if hits else 'unassigned')
-    return dict(status=status, candidates=hits)
+    result = dict(status=status, candidates=hits)
+    if minimum_overlap is not None:
+        qualified = [hit for hit in hits if hit['overlap_fraction'] >= minimum_overlap]
+        # A 50/50 split or overlapping zones never gets an arbitrary winner.
+        if len(qualified) == 1:
+            result = dict(status='assigned', candidates=qualified)
+        result.update(minimum_overlap=minimum_overlap, intersections=hits)
+    return result
 
 
 def prepare(source, output, selected_pages):
@@ -102,7 +111,7 @@ def prepare(source, output, selected_pages):
     print(json.dumps(dict(pages=selected_pages,regions=len(rows),question_assignment=False)),flush=True)
 
 
-def assign(source, recognized, output, annotations=None):
+def assign(source, recognized, output, annotations=None, minimum_overlap=None):
     if output.exists():
         raise ValueError('Use a fresh association output')
     raw = read(recognized/'results.json')
@@ -124,7 +133,7 @@ def assign(source, recognized, output, annotations=None):
         q['segments']=[]
     by_id={q['id']:q for q in questions}
     for r in raw:
-        association=associate(r['ink_box'],[q for q in questions if q['page']==r['page']])
+        association=associate(r['ink_box'],[q for q in questions if q['page']==r['page']],minimum_overlap)
         associations.append(dict(crop_id=r['id'],box=r['box'],ink_box=r['ink_box'],**association))
         if not association['candidates']:
             unassigned.append(r)
@@ -146,7 +155,8 @@ def assign(source, recognized, output, annotations=None):
     save(output/'provenance.json',dict(method='145 page-wide recognition before question association; no OCR text/key used for ownership',
                                       fresh_result_sha256=sha(recognized/'results.json'),page_crop_count=len(raw),assigned_links=len(results),
                                       unassigned=len(unassigned),ambiguous=sum(a['status']!='assigned' for a in associations),
-                                      source_ocr=str((recognized/'results.json').resolve())))
+                                      source_ocr=str((recognized/'results.json').resolve()),minimum_overlap=minimum_overlap,
+                                      overlap_basis='ink bounding rectangle before crop padding'))
     print(json.dumps(dict(crops=len(raw),links=len(results),unassigned=len(unassigned),questions=len(questions))),flush=True)
 
 
@@ -154,6 +164,7 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser();commands=parser.add_subparsers(dest='command',required=True)
     prep=commands.add_parser('prepare');prep.add_argument('source',type=Path);prep.add_argument('output',type=Path);prep.add_argument('--pages',type=int,nargs='+',required=True)
     assigner=commands.add_parser('assign');assigner.add_argument('source',type=Path);assigner.add_argument('recognized',type=Path);assigner.add_argument('output',type=Path);assigner.add_argument('--annotations',type=Path)
+    assigner.add_argument('--minimum-overlap',type=float)
     args=parser.parse_args()
     if args.command=='prepare':prepare(args.source,args.output,args.pages)
-    else:assign(args.source,args.recognized,args.output,args.annotations)
+    else:assign(args.source,args.recognized,args.output,args.annotations,args.minimum_overlap)

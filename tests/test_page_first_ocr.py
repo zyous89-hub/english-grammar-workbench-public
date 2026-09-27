@@ -10,6 +10,21 @@ from tests import test_stage_classification as stage_tests
 
 
 class PageFirstTests(unittest.TestCase):
+    def test_area_thresholds_keep_ties_and_unmatched_ink_for_review(self):
+        questions=[dict(id='upper',zone=[0,0,100,60]),dict(id='lower',zone=[0,60,100,100])]
+        for threshold in (.5,.6):
+            result=associate([0,0,100,100],questions,threshold)
+            self.assertEqual(result['status'],'assigned')
+            self.assertEqual([c['question_id'] for c in result['candidates']],['upper'])
+            self.assertEqual(len(result['intersections']),2)
+        self.assertEqual(associate([0,0,100,100],questions,.7)['status'],'ambiguous')
+        self.assertEqual(associate([0,20,100,100],questions,.5)['status'],'ambiguous')
+        self.assertEqual(associate([110,0,120,20],questions,.5)['status'],'unassigned')
+        self.assertEqual(associate([-10,0,10,20],questions,.5)['status'],'assigned')
+        self.assertEqual(associate([-10,0,10,20],questions,.6)['status'],'outside_zone')
+        for threshold in (0,.49,1.1,float('nan')):
+            with self.assertRaises(ValueError):associate([0,0,10,10],questions,threshold)
+
     def test_crossing_ink_is_not_cut_and_assignment_never_picks_a_winner(self):
         blank=np.full((160,160),255,np.uint8);student=blank.copy()
         cv2.rectangle(student,(40,60),(75,115),0,2)
