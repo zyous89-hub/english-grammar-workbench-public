@@ -1,5 +1,43 @@
 # English Grammar Workbench
 
+## 결과와 재현
+
+아래는 **f5fed75의 개발용 결과**입니다. 기본 정책은 제안안(`duplicate`)이며, 독립 검증 결과는 EGW3 보고 확인 후 별도로 추가합니다.
+
+| 기준 커밋 | 정책 | 평가 범위 | 문항 수 | 자동확정 | 틀린 자동확정 | 보류 |
+|---|---|---|---:|---:|---:|---:|
+| [f5fed75]((비공개 기록)) | 제안안 · 기본값 | 개발용 고정 자료 | 134 | 37 | 0 | 97 |
+
+‘틀린 자동확정’은 확인 전사와 다른 답을 자동확정하거나, 전사에서 숫자 답이 확정되지 않았는데 숫자로 자동확정한 건수입니다. 학생의 답지상 정답률과는 다릅니다. 추천은 자동확정에 포함하지 않습니다. [결과·검증 기록](docs/conversations/2026-09-28-EGW4-same-answer-causes.md), [적용 규칙](docs/decisions/0037-EGW4-same-answer-causes.md), [기본 정책](src/README.md)을 함께 확인합니다.
+
+저장된 OCR·선택 표시 측정을 재사용해 위 채점 결과를 만든 기존 명령입니다. 저장소 루트에서 해당 버전과 같은 로컬 자료·환경을 사용하며, 마지막 출력 경로는 아직 없는 새 폴더여야 합니다.
+
+```powershell
+private/paddle-env/Scripts/python.exe -m tools.dual_evidence private/e167/result/CE private/e167/CE-trial private/external-batch-20260925/4C-rerun071-source private/EGW4-markref/measurements/measurements.json private/EGW4-reproduce-f5fed75
+```
+
+출력의 `duplicate/result.json`이 기본 결과입니다. 이 명령은 전사를 입력받지 않으며, 오류0은 별도 확인 전사 대조 결과입니다. 기존 로컬 평가 근거는 `private/EGW4-same-answer-verified/EGW4-validation.json`과 `EGW4-final-checks.json`에 있습니다. 학생 자료·전사·템플릿·모델·실행 환경은 Git에 포함되지 않으므로 저장소 복제만으로 같은 수치를 재현할 수는 없습니다. 기존 명령의 입력 계약은 [결정0036](docs/decisions/0036-EGW4-dual-evidence-agreement.md)에 있습니다. 이번 문서 보강에서는 재채점·평가 기준 변경을 하지 않았습니다.
+
+## 외부 통신
+
+아래 표는 저장소에 남은 실행 기록과 구현 코드로 확인한 범위입니다. 이번 문서 보강에서 새 통신 감사를 실행한 것은 아닙니다.
+
+| 항목 | 확인된 상태와 한계 | 근거 파일 |
+|---|---|---|
+| 채점 중 외부 통신 | 기록된 개발 실행은 로컬 OCR·채점이며 외부 OCR API를 사용하지 않았음. 현재 OCR 실행기는 Python 연결·DNS 호출을 차단함. 완성 앱 전체의 외부 통신 여부는 미확인 | [외부 묶음 실행 기록](docs/verification/2026-09-25-external-batch.md), [OCR 실행기](tools/run_added_ink_ocr.py) |
+| OCR 모델 다운로드 | 준비 단계에서 PP-OCRv5 모델을 PaddlePaddle 공식 Hugging Face 배포본으로 다운로드한 기록이 있음. 현재 OCR 실행기는 로컬 `model_dir`를 지정하고 오프라인 환경값을 설정함. 완성 배포물의 첫 실행·캐시 누락 시 동작은 미확인 | [PaddleOCR 준비·실행 기록](docs/verification/2026-09-24-paddle-ocr.md), [OCR 실행기](tools/run_added_ink_ocr.py) |
+| 계정·API 키 | 현재 로컬 OCR 실행기의 입력은 경로이며 계정·API 키 인수가 없음. 검증 화면은 Python 표준 라이브러리로 동작함. 모델 준비를 포함한 완성 앱 설치·배포 전체의 요구사항은 미확인 | [OCR 실행기](tools/run_added_ink_ocr.py), [검증 화면 범위](src/README.md) |
+| 사용 통계 | 외부 사용 통계 수집·전송 여부 미확인. 의존 라이브러리와 완성 배포물까지 포함한 전용 감사 기록 없음 | [현재 구현 범위](src/README.md); 사용 통계 전용 검증 근거 없음 |
+| 실행 중 연결 시도 감사 | 2026-09-24 로컬 모델 추론에서 Python `socket.connect`·DNS 감사 훅이 감지한 연결 시도0회. 해당 실행의 측정이며 OS·네이티브 라이브러리 전체 감사는 아님 | [Python socket·DNS 감사 기록](docs/verification/2026-09-24-paddle-ocr.md), [서술형 묶음 감사 범위](docs/verification/2026-09-24-written-batch.md) |
+
+**OS 전체 무통신과 완성 앱 패키징 검증은 아직 완료하지 않았습니다.** 설치형 앱·OCR 실행 연결의 미완료 범위는 [src/README.md](src/README.md), 배포 환경·DLL·모델 포함 검증의 남은 범위는 [독립 실행 가능성 검토](docs/verification/2026-09-26-standalone-feasibility-080.md)에 기록돼 있습니다.
+
+외부 구성요소 고지는 [NOTICE](NOTICE), 오류와 방지 규칙은 [개발 교훈](docs/lessons.md)을 참조합니다. 문서 구성은 kordoc의 [작업 규칙](https://github.com/chrisryugj/kordoc/blob/main/AGENTS.md), [통신 범위 표](https://github.com/chrisryugj/kordoc/blob/main/SECURITY.md#outbound-network-traffic), [성능 표](https://github.com/chrisryugj/kordoc#-성능-한눈에-보기)를 참고했으며, 위 수치와 통신 설명은 이 저장소의 근거만 사용했습니다.
+
+## 이전 상태 기록
+
+아래 날짜별 설명은 당시 기록입니다. 현재 개발용 결과와 검증 범위는 위 두 절을 우선합니다.
+
 현재 개발 경계(2026-09-27): [앱·엔진 파일 계약 v1](docs/result-format.md), [검증 화면 실행법](src/README.md). 교사 수정은 별도 파일로 보존합니다. 계약·출력·검증 화면까지 구현했으며 설치형 앱은 아직 없습니다. 최신 채점은 [132](docs/conversations/2026-09-27-132.md), 현재 상태는 [인수인계](CODEX_HANDOFF.md)를 우선합니다. 아래 최근 실험 표시는 당시 기록입니다.
 
 최근 실험: [F08(b) 동그라미 예외 두 조건 비교121](docs/conversations/2026-09-26-121.md). 기존 OCR 66문항으로 두 안 모두 전사 일치 5 / 보류 61. 기본 규칙 채택은 미결정입니다.

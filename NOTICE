@@ -1,0 +1,40 @@
+# 외부 라이브러리·모델 고지
+
+확인일: 2026-09-28
+
+이 문서는 현재 구현된 OCR·채점 검증 도구가 사용하는 외부 구성요소의 출처와 라이선스를 기록합니다. 독립 실행 앱은 아직 패키징되지 않았으며, 이 목록은 완성된 배포물의 전체 의존성 목록이나 라이선스 준수 완료 선언이 아닙니다. 각 구성요소의 권리는 원저작권자에게 있습니다. 이 고지는 이 저장소 자체에 새 라이선스를 부여하지 않습니다.
+
+범위는 Git에 추적되는 `src/`·`tools/`의 실제 import와 OCR 실행 경로입니다. 버전은 로컬 OCR 실행환경의 설치 메타데이터에서 확인한 값이며, 저장소에 requirements/lock 파일로 고정된 버전은 아닙니다. 설치되어 있다는 이유만으로 사용이 확인되지 않은 패키지를 추가하지 않았습니다. 과거 시험용 `scripts/`의 도구는 현재 OCR 경로와 구분합니다.
+
+## 현재 도구의 구성요소
+
+| 구성요소·확인 버전 | 저작권자·출처 표기 | 라이선스 | 저장소 사용 근거 및 공식 근거 |
+|---|---|---|---|
+| PaddleOCR 3.3.2 | PaddlePaddle Authors | Apache-2.0 | `tools/run_added_ink_ocr.py`의 `TextRecognition`. [3.3.2 LICENSE](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.3.2/LICENSE) |
+| PaddleX 3.3.13 | PaddlePaddle Authors | Apache-2.0 | 같은 도구의 `CTCLabelDecode`. [3.3.13 LICENSE](https://github.com/PaddlePaddle/PaddleX/blob/v3.3.13/LICENSE), [사용 모듈의 저작권 표기](https://github.com/PaddlePaddle/PaddleX/blob/v3.3.13/paddlex/inference/models/text_recognition/processors.py) |
+| PaddlePaddle 3.2.0 | PaddlePaddle Authors | Apache-2.0 | 위 OCR 인식의 실행 backend. 설치·실행 근거: `docs/verification/2026-09-24-paddle-ocr.md`, `docs/verification/2026-09-26-standalone-feasibility-080.md`. [3.2.0 LICENSE](https://github.com/PaddlePaddle/Paddle/blob/v3.2.0/LICENSE) |
+| OpenCV 4.10.0 / opencv-contrib-python 4.10.0.84 | OpenCV 기여자. 기존 core 파일 표기: Intel Corporation, Willow Garage Inc., OpenCV Foundation, Itseez Inc. Python 패키징: Olli-Pekka Heinisuo | OpenCV: Apache-2.0 및 파일별 기존 고지. Python 패키징: MIT. 포함 바이너리는 별도 제3자 고지 포함 | `tools/extract_added_ink.py`, `tools/page_first_ocr.py` 등의 `cv2`. [OpenCV LICENSE](https://github.com/opencv/opencv/blob/4.10.0/LICENSE), [core 저작권 표기](https://github.com/opencv/opencv/blob/4.10.0/modules/core/include/opencv2/core.hpp), [패키징 LICENSE](https://github.com/opencv/opencv-python/blob/84/LICENSE.txt) |
+| NumPy 2.4.6 | NumPy Developers | 핵심 코드 BSD-3-Clause; 포함 코드·바이너리의 추가 라이선스는 아래 참고 | `tools/extract_added_ink.py`, `tools/dual_evidence.py` 등의 `numpy`. [2.4.6 LICENSE](https://github.com/numpy/numpy/blob/v2.4.6/LICENSE.txt) |
+| Pillow 12.3.0 | Jeffrey 'Alex' Clark and contributors. 기반 PIL: Secret Labs AB, Fredrik Lundh and contributors | MIT-CMU; 포함 라이브러리는 별도 고지 포함 | `tools/scan_resolution.py`, `tools/dual_evidence.py`의 `PIL.Image`. [12.3.0 LICENSE](https://github.com/python-pillow/Pillow/blob/12.3.0/LICENSE) |
+| pypdfium2 5.13.0 | geisserml 및 pypdfium2 기여자; 각 소스의 SPDX 표기 참조 | wrapper 코드: Apache-2.0 OR BSD-3-Clause. 문서·예제: CC-BY-4.0 | `tools/prepare_ocr_sources.py`, `tools/extract_added_ink.py`, `tools/audit_answer_key.py`, `tools/audit_numbered_answer_key.py`의 PDF 처리. [5.13.0 라이선스 안내](https://github.com/pypdfium2-team/pypdfium2/blob/5.13.0/README.md#licensing), [소스 SPDX 표기](https://github.com/pypdfium2-team/pypdfium2/blob/5.13.0/src/pypdfium2/version.py) |
+| PDFium 153.0.7999.0 — 위 pypdfium2에 포함 | The PDFium Authors | BSD-style (3-clause); 포함 의존성은 각각의 라이선스 적용 | PDF 렌더·텍스트 추출의 실제 바이너리. 버전 근거: 설치된 `pypdfium2_raw/version.json`. [PDFium LICENSE](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/LICENSE), 고정된 로컬 배포본 고지는 아래 참고 |
+
+## OCR 모델
+
+| 모델 | 저작권·공식 배포 주체 | 라이선스 | 실제 사용 범위와 근거 |
+|---|---|---|---|
+| PP-OCRv5_server_rec | PaddlePaddle / PaddleOCR team. 공식 모델 카드는 별도의 연도별 저작권 문구를 제공하지 않음 | Apache-2.0 | 현재 `tools/run_added_ink_ocr.py`가 로컬 `model_dir`로 지정하는 문자 인식 모델. [공식 모델 카드](https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec) |
+
+`PP-OCRv5`는 모델 이름입니다. 이 고지는 로컬 가중치와 원격 모델 저장소의 특정 revision 사이의 해시 일치까지 확인했다는 뜻이 아닙니다. 모델 라이선스는 위 공식 배포 주체의 모델 카드에서 확인했으며, 가중치를 이 저장소에 새로 포함하지 않았습니다.
+
+## 설치본의 원문 고지와 배포 전 남은 확인
+
+확인한 설치 메타데이터·원문 고지의 기준 폴더는 로컬 OCR 환경의 `Lib/site-packages/`입니다. 아래 파일은 원문 라이선스와 포함 바이너리의 고지를 확인할 위치이며, 이 저장소에 복사한 파일 목록은 아닙니다.
+
+- PaddleOCR: `paddleocr-3.3.2.dist-info/LICENSE`; PaddleX: `paddlex-3.3.13.dist-info/licenses/LICENSE`; PaddlePaddle: `paddlepaddle-3.2.0.dist-info/LICENSE`.
+- OpenCV: `opencv_contrib_python-4.10.0.84.dist-info/LICENSE.txt`, `LICENSE-3RD-PARTY.txt` 및 `cv2/`의 대응 고지. 패키징의 MIT 고지만으로 OpenCV 바이너리 전체를 설명하지 않습니다.
+- NumPy: `numpy-2.4.6.dist-info/licenses/` 전체. 메타데이터의 식은 `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`이며, 설치 wheel의 `LICENSE.txt`에는 OpenBLAS·LAPACK·GCC 런타임 등의 고지와 해당 예외도 들어 있습니다.
+- Pillow: `pillow-12.3.0.dist-info/licenses/LICENSE`. 설치 wheel은 Pillow 자체 외에 포함 이미지·폰트 처리 라이브러리의 고지도 담고 있습니다.
+- pypdfium2: `pypdfium2-5.13.0.dist-info/licenses/LICENSES/`와 `licenses/data/windows_x64/BUILD_LICENSES/` 전체. 후자의 `pdfium.txt`는 실제 설치 PDFium의 고지이며, wrapper의 선택 라이선스와 구분합니다. PDFium 및 포함 의존성 고지는 바이너리 배포 시 함께 제공해야 합니다([공식 안내](https://github.com/pypdfium2-team/pypdfium2/blob/5.13.0/README.md#licensing)).
+
+앱 배포 시에는 실제 포함할 Python 런타임·패키지·DLL·모델의 버전과 원문 LICENSE/NOTICE를 배포물 기준으로 확정하고, 포함된 전이 의존성의 조건까지 확인해야 합니다. 이 요약과 링크는 원문 고지의 동봉을 대신하지 않습니다. 이번 기록에서는 라이브러리 설치·업데이트, 모델 다운로드, OCR 재실행 및 패키징을 수행하지 않았습니다.
