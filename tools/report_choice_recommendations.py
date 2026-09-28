@@ -7,12 +7,15 @@ from pathlib import Path
 
 from src.result_files import image_path, load_result
 from tools.page_first_ocr import read, save, sha
+from tools.classify_grid_stages import REASONS
 
 
-def report(root, transcription, output):
+def report(root, transcription, output, causes=None):
     if output.exists():
         raise FileExistsError(output)
     labels = {q['id']:q for q in read(transcription)['rows']}
+    cause_rows = ({mode:{q['id']:q for q in rows} for mode,rows in read(causes)['policies'].items()}
+                  if causes else {})
     images = {}; sections = []; summary = {}
     esc = lambda value: html.escape(str(value))
 
@@ -42,6 +45,7 @@ def report(root, transcription, output):
             wrong = False; evaluation = ''
             proofs = [e for e in q['evidence_images'] if e['id']=='choice-mark-recommendation']
             agreements = [e for e in q['evidence_images'] if e['id'].startswith('two-evidence-')]
+            resolutions = [e for e in q['evidence_images'] if e['id'].startswith('same-answer-')]
             audit['dual_confirmed'] += bool(agreements)
             if bool(rec) != bool(proofs) or len(proofs) > 1:
                 raise ValueError('Recommendation manifest and evidence disagree')
@@ -69,11 +73,23 @@ def report(root, transcription, output):
                 title += ' · '+proofs[0]['label']
             if agreements:
                 title += ' · '+agreements[0]['label']
+            if resolutions:
+                title += ' · '+resolutions[0]['label']
             body = '<p class="evaluation">'+esc(evaluation)+'</p>' if evaluation else ''
             body += f'<p>읽은 답: {esc(q["read_answer"])} · 채점: {esc(q["judgement"])} · 답지: {esc(q["answer_key"])}</p>'
             body += '<ul>'+''.join('<li>'+esc(r['message'])+'</li>' for r in q['reasons'])+'</ul>'
             contexts = [e for e in q['evidence_images'] if e['id']=='context']
-            body += '<div class="images">'+''.join(picture(root/mode, e) for e in proofs+agreements+contexts[:1])+'</div>'
+            checks = cause_rows.get(mode,{}).get(q['id'],{}).get('reason_audit',[])
+            if checks:
+                body += '<div class="scroll"><table><tr><th>검사 시점·사유</th><th>원인 조각</th><th>해소 여부</th></tr>'
+                for check in checks:
+                    ids = ', '.join(c['crop_id'].split('-page-')[-1] for c in check['causes']) or '특정 불가'
+                    phase = '원래 사유' if check['phase']=='original' else '후보 적용 후 검사'
+                    state = ('같은 답 표시로 해소 가능' if check['cleared'] else
+                             '기존 후보 판정으로 재검사' if check['rule']=='no_candidate' and check['code'] in ('5','6','9') else '유지')
+                    body += f'<tr><td>{esc(phase)} · {esc(check["rule"])} · {esc(REASONS[check["code"]])}</td><td>{esc(ids)}</td><td>{state}</td></tr>'
+                body += '</table></div><p>후보 적용 후 검사는 원인 확인용입니다. 다른 사유가 남으면 자동확정하지 않습니다.</p>'
+            body += '<div class="images">'+''.join(picture(root/mode, e) for e in proofs+agreements+resolutions+contexts[:1])+'</div>'
             sections.append(f'<details data-mode="{mode}" data-id="{esc(q["id"])}" data-held="{int(q["judgement"]=="보류")}" data-agreement="{int(bool(agreements))}" data-rec="{int(bool(rec) and display_recommendations)}" data-wrong="{int(wrong and display_recommendations)}"><summary>{esc(title)}</summary>{body}</details>')
         summary[mode] = audit
     rows = ''.join(f'<tr><td>{name}</td><td>{summary[mode]["automatic"]}</td><td>{summary[mode]["held"]}</td><td>{summary[mode]["recommended"]}</td><td>{summary[mode]["matched"]}</td><td>{len(summary[mode]["wrong"])}</td><td>{len(summary[mode]["unverified"])}</td></tr>' for mode,name in [('duplicate','기본 · 제안안'),('broad','참고 · 사용자안 · 독립 검증에서 틀린 자동확정 1건')])
@@ -95,5 +111,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     for name in ('root', 'transcription', 'output'):
         parser.add_argument(name, type=Path)
+    parser.add_argument('--causes', type=Path)
     args = parser.parse_args()
-    print(json.dumps(report(args.root, args.transcription, args.output), ensure_ascii=False))
+    print(json.dumps(report(args.root, args.transcription, args.output, args.causes), ensure_ascii=False))

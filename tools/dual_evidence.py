@@ -7,6 +7,8 @@ from pathlib import Path
 import shutil
 import uuid
 
+import cv2
+import numpy as np
 from PIL import Image
 
 from src.result_files import image_path, load_result, write_result
@@ -14,6 +16,8 @@ from tools.choice_mark_recommendations import PARAMETERS, recommend
 from tools.classify_grid_stages import REASONS, overlaps, question_review, student_choices
 from tools.page_first_ocr import read, save, sha
 from tools.scan_resolution import inspect_scan_sizes
+from tools.ocr_retry_preprocess import _holes
+from tools.compare_f08_circles import circles
 
 MINIMUM_SCORE = .5
 
@@ -43,17 +47,58 @@ def numeric_readings(record):
             yield from numeric_readings(reading)
 
 
-def decide(question, review, regions, raw, marks, printed, alignment, exemptions=(), expected_count=None):
-    """Return the original review unless the complete new rule passes."""
-    audit = dict(applied=False, excluded=[], readings=[], decision='already_automatic')
+def closed_border(blocker, candidate, gray):
+    """Prove an intact frame contains only the separate answer crop's ink."""
+    if gray is None or gray.ndim != 2 or not gray.size or blocker['id'] == candidate['id']:
+        return False
+    x,y,X,Y = blocker['box']; a,b,A,B = candidate.get('ink_box', candidate['box'])
+    if not (x < a < A < X and y < b < B < Y):
+        return False
+    h,w = gray.shape
+    yy,xx = np.indices(gray.shape)
+    inside = ((xx >= (a-x)*w/(X-x)) & (xx < (A-x)*w/(X-x))
+              & (yy >= (b-y)*h/(Y-y)) & (yy < (B-y)*h/(Y-y)))
+    ink = np.uint8(gray < 195)
+    count, labels = cv2.connectedComponents(ink, connectivity=8)
+    for i in range(1, count):
+        frame = np.uint8(labels == i)*255
+        hole = _holes(frame)
+        if not inside.any() or not np.all(hole[inside]):
+            continue
+        content = hole & (ink > 0)
+        # The culprit crop must contain only this frame and the answer ink.
+        if content.sum() < 8 or np.any((ink > 0) & ~inside & (labels != i)):
+            continue
+        # No fitted/closed/hull-filled gaps: the original ink must form the hole.
+        contours, _ = cv2.findContours(frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        outline = max(contours, key=cv2.contourArea)
+        polygon = cv2.approxPolyDP(outline, .025*cv2.arcLength(outline, True), True)
+        if (len(polygon)==4 and cv2.isContourConvex(polygon)) or circles(255-frame):
+            return True
+    return False
+
+
+def decide(question, review, regions, raw, marks, printed, alignment, exemptions=(), expected_count=None,
+           border_images=None):
+    """Clear only traced same-answer causes; retain all other held reasons."""
+    audit = dict(applied=False, excluded=[], readings=[], reason_audit=[], decision='already_automatic')
     if review['selection'] is not None:
         return review, audit
-    mark = recommend(question, marks)
-    if mark is None:
+    if not review['key'] or len(review['key']) != 1:
         audit['decision'] = 'no_single_mark_or_single_key'
         return review, audit
-    number = '①②③④⑤'.index(mark['symbol'])+1
+    if sorted(m['symbol'] for m in printed) != list('①②③④⑤'):
+        audit['decision'] = 'printed_numbers_incomplete'
+        return review, audit
+    mark = recommend(question, marks)
+    accepted = [r for r in regions if r['stage']==0 and r['score'] >= .8
+                and not any(overlaps(r['box'], m['box']) for m in printed)]
+    if mark is None and not (accepted and review['proposed_selection'] and len(review['proposed_selection'])==1):
+        audit['decision'] = 'no_single_mark_or_single_key'
+        return review, audit
+    number = '①②③④⑤'.index(mark['symbol'])+1 if mark else review['proposed_selection'][0]
     audit['mark'] = number
+    audit['has_choice_mark'] = mark is not None
     for r in regions:
         hits = [m['symbol'] for m in printed if overlaps(r['box'], m['box'])]
         if hits:
@@ -72,17 +117,12 @@ def decide(question, review, regions, raw, marks, printed, alignment, exemptions
     if best['values'] != [number] or any(r['values'] != [number] for r in readings):
         audit['decision'] = 'independent_digits_disagree'
         return review, audit
-    # Only recognition absence/low confidence/background and low-score F08(b)
-    # may be reconsidered. Ownership, answer presence, F05/F06/F10/F12 etc stay.
-    blocked = [r for r in review['reasons'] if not (
-        r['rule']=='no_candidate' and r['code'] in ('5','6','9')
-        or r['rule']=='F08(b)' and r['code']=='6')]
-    if blocked:
-        audit.update(decision='protected_hold', blockers=blocked)
-        return review, audit
     candidate = next(r for r in regions if r['id']==best['crop_id'])
     updated = deepcopy(regions)
     if best['score'] < .8:
+        if mark is None:
+            audit['decision'] = 'no_single_mark_or_single_key'
+            return review, audit
         promoted = next(r for r in updated if r['id']==candidate['id'])
         promoted.update(stage=0, reason='candidate', choice=[number])
         audit['path'] = 'low_confidence_agreement'
@@ -98,14 +138,61 @@ def decide(question, review, regions, raw, marks, printed, alignment, exemptions
         best = dict(values=[number], text=candidate['text'], score=candidate['score'],
                     crop_id=candidate['id'], input=current_input(raw[candidate['id']]))
         audit['path'] = 'existing_candidate_mark_blocker'
-    chosen_box = next(m['box'] for m in printed if m['symbol']==mark['symbol'])
-    mark_exemptions = [r['id'] for r in regions if r['reason']=='6' and overlaps(r['box'],chosen_box)]
+    audit['handwriting'] = best
+    chosen = [m['box'] for m in printed if m['symbol']=='①②③④⑤'[number-1]]
+    by_id = {r['id']:r for r in regions}
+
+    def trace(reason, phase):
+        allowed = (reason['rule']=='F08(b)' and reason['code']=='6'
+                   or reason['rule']=='no_candidate' and reason['code'] in ('2','8'))
+        causes = []
+        for ident in reason['crop_ids']:
+            r = by_id.get(ident); method = None
+            if allowed and r is not None and r['reason']==reason['code']:
+                if len(chosen)==1 and overlaps(r['box'], chosen[0]) and (
+                        reason['code']!='2' or r.get('empty') is True):
+                    method = 'same_printed_number'
+                elif reason['rule']=='F08(b)' and closed_border(r, raw[candidate['id']],
+                        (border_images or {}).get(ident)):
+                    method = 'closed_border_only_answer'
+            causes.append(dict(crop_id=ident, method=method, cleared=bool(method)))
+        clear = bool(causes) and all(c['cleared'] for c in causes)
+        audit['reason_audit'].append(dict(phase=phase, rule=reason['rule'], code=reason['code'],
+                                         causes=causes, cleared=clear))
+        return clear
+
+    # Promotion can make no_candidate reasons disappear. Preserve every protected
+    # original reason unless ALL of its recorded causes satisfy the new rule.
+    blocked = []; cleared_original = []
+    for reason in review['reasons']:
+        clear = trace(reason, 'original')
+        if clear:
+            cleared_original.append(reason)
+        elif not (reason['rule']=='no_candidate' and reason['code'] in ('5','6','9')
+                  or reason['rule']=='F08(b)' and reason['code']=='6'):
+            blocked.append(reason)
+    trial = question_review(updated, question['answer_key'], alignment,
+                            f08_exemptions=exemptions, expected_count=expected_count)
+    f08_exemptions = set(exemptions)
+    for reason in trial['reasons']:
+        if trace(reason, 'candidate') and reason['rule']=='F08(b)':
+            f08_exemptions.update(reason['crop_ids'])
     changed = question_review(updated, question['answer_key'], alignment,
-                              f08_exemptions=set(exemptions)|set(mark_exemptions), expected_count=expected_count)
-    audit.update(handwriting=best, mark_exemptions=mark_exemptions, remaining_reasons=changed['reasons'])
-    if changed['selection'] != [number]:
-        audit['decision'] = 'remaining_hold'
+                              f08_exemptions=f08_exemptions, expected_count=expected_count)
+    remaining = blocked + [r for r in changed['reasons'] if r not in blocked]
+    audit.update(mark_exemptions=sorted(f08_exemptions-set(exemptions)), remaining_reasons=remaining)
+    if remaining:
+        audit['decision'] = 'protected_hold' if blocked else 'remaining_hold'
+        audit['blockers'] = blocked
+        if cleared_original and any(r not in cleared_original for r in review['reasons']):
+            held = deepcopy(review)
+            held['reasons'] = [r for r in review['reasons'] if r not in cleared_original]
+            held['stage'] = max((r['stage'] for r in held['reasons'] if r['stage'] is not None), default=None)
+            audit['reasons_changed'] = True
+            return held, audit
         return review, audit
+    if changed['selection'] != [number]:
+        raise ValueError('Same-answer candidate was not reproduced')
     audit.update(applied=True, decision='confirmed')
     return changed, audit
 
@@ -184,8 +271,29 @@ def run(baseline, trial, source, measurements_path, output):
             if before!=reproduced or q['reasons']!=reasons or q['review_stage']!=(before['stage'] or None) or q['judgement']!=before['status'] or q['read_answer']!=(
                 ','.join(map(str,before['proposed_selection'])) if before['proposed_selection'] is not None else None):
                 raise ValueError('Frozen grading result does not reproduce')
+            border_images = {}
+            if before['selection'] is None:
+                for r in assigned:
+                    if r['reason']!='6' or not any(
+                            r['box'][0]<a<A<r['box'][2] and r['box'][1]<b<B<r['box'][3]
+                            for c in assigned if c['id']!=r['id']
+                            for a,b,A,B in [raw[c['id']].get('ink_box', c['box'])]):
+                        continue
+                    path = Path(raw[r['id']]['input'])
+                    tracked[str(path.resolve())] = sha(path)
+                    if tracked[str(path.resolve())] != raw[r['id']]['input_sha256']:
+                        raise ValueError('Original border image changed')
+                    with Image.open(path) as image:
+                        gray = np.array(image.convert('L'))
+                    sq = questions[q['id']]
+                    sx,sy = (a/b for a,b in zip(*dimensions[(sq['set'],sq['page'])]))
+                    l,t,right,bottom = r['box']
+                    expected_shape = (round(bottom*sy)-round(t*sy)+20,round(right*sx)-round(l*sx)+20)
+                    if gray.shape != expected_shape:
+                        raise ValueError('Expected the original padded crop')
+                    border_images[r['id']] = gray[10:-10,10:-10]
             after, evidence = decide(q,before,assigned,raw,measurements['questions'][q['id']],
-                mapped[q['id']],alignment,row['exemptions'],row.get('required_count'))
+                mapped[q['id']],alignment,row['exemptions'],row.get('required_count'),border_images)
             audit.append(dict(id=q['id'],before=before,after=after,**evidence))
             for e in q['evidence_images']:
                 path = image_path(result_path.parent,e['path'])
@@ -193,21 +301,32 @@ def run(baseline, trial, source, measurements_path, output):
                 target = image_path(dest,e['path']); target.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copyfile(path,target)
             if not evidence['applied']:
+                if evidence.get('reasons_changed'):
+                    q.update(reasons=[dict(code=r['code'],stage=r['stage'],message=r.get('message') or REASONS[r['code']])
+                                      for r in after['reasons']], review_stage=after['stage'],
+                             rules_version=q['rules_version']+' + same-answer-causes-v1')
                 continue
             reading = evidence['handwriting']; number = evidence['mark']
-            label = f"두 증거 일치 · 손글씨 {number} {reading['score']:.2f} + 선택 표시 {number}"
-            mark = next(m for m in measurements['questions'][q['id']] if m['symbol']=='①②③④⑤'[number-1])
+            label = (f"두 증거 일치 · 손글씨 {number} {reading['score']:.2f} + 선택 표시 {number}"
+                     if evidence['has_choice_mark'] else f"같은 답 표시 사유 해소 · 손글씨 {number} {reading['score']:.2f}")
             handwriting = Path(reading['input'] or raw[reading['crop_id']]['input'])
-            mark_path = image_path(measurements_path.parent,mark['image'])
-            if sha(mark_path)!=mark['image_sha256']:
-                raise ValueError('Choice-mark image changed')
-            for ident,path in [('two-evidence-handwriting',handwriting),('two-evidence-mark',mark_path)]:
+            images = [('two-evidence-handwriting' if evidence['has_choice_mark'] else 'same-answer-handwriting',handwriting)]
+            if evidence['has_choice_mark']:
+                mark = next(m for m in measurements['questions'][q['id']] if m['symbol']=='①②③④⑤'[number-1])
+                mark_path = image_path(measurements_path.parent,mark['image'])
+                if sha(mark_path)!=mark['image_sha256']:
+                    raise ValueError('Choice-mark image changed')
+                images.append(('two-evidence-mark',mark_path))
+            for ident,path in images:
                 digest=sha(path); tracked[str(path.resolve())]=digest
                 relative=f'evidence/{digest}{path.suffix.lower()}'
                 shutil.copyfile(path,image_path(dest,relative))
                 q['evidence_images'].append(dict(id=ident,label=label,path=relative))
+            additional = (not evidence['has_choice_mark'] or any(a['cleared'] and (
+                a['code'] in ('2','8') or any(c['method']=='closed_border_only_answer' for c in a['causes']))
+                for a in evidence['reason_audit']))
             q.update(read_answer=str(number),judgement=after['status'],review_stage=None,reasons=[],
-                     rules_version=q['rules_version']+' + two-evidence-v1')
+                     rules_version=q['rules_version']+' + two-evidence-v1'+(' + same-answer-causes-v1' if additional else ''))
         result.update(result_id=str(uuid.uuid4()),generated_at=datetime.now(timezone.utc).isoformat())
         write_result(dest/'result.json',result)
         corrections=result_path.parent/'teacher-corrections.json'
