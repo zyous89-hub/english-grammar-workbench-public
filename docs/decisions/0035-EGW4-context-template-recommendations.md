@@ -2,7 +2,7 @@
 
 - 기록일: 2026-09-28.
 - 상태: 개발용 134문항에서 기준 재현 및 추천 평가 완료.
-- 근거: [EGW4 검증 기록](../conversations/2026-09-28-EGW4-template-recommendations.md).
+- 근거: EGW4 검증 기록 (비공개 기록).
 - 대체: 결정0034의 PDF 좌표·추가 잉크 측정. 채점 이후 근거만 추가하는 경계는 유지.
 
 `tools/choice_mark_recommendations.py`는 기존 결과의 `evidence_images[id=context]`에 연결된 정렬된 300dpi 문항 이미지를 그대로 읽습니다. 각 인쇄 번호를 사용자 제공 40×40 중앙값 템플릿의 32×32 중심으로 직접 찾습니다. 재정렬·크기 변경·PDF 글자 위치는 사용하지 않습니다.
