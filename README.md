@@ -1,4 +1,4 @@
-이 저장소는 2026-09-28 해커톤 제출 시점까지의 개발 이력을 담은 공개용 사본입니다(원본 비공개 저장소 main cb81b05). 실제 학생 답안 사례가 담긴 문서는 개인정보 보호를 위해 모든 기록에서 뺐고, 그래서 커밋 해시가 원본과 다릅니다. 원본 해시는 orig-로 시작하는 태그로 찾을 수 있습니다.
+이 저장소는 2026-09-28 해커톤 제출 시점까지의 개발 이력을 담은 공개용 사본입니다(원본 비공개 저장소 main cb81b05). 실제 학생 답안 사례가 담긴 문서는 개인정보 보호를 위해 모든 기록에서 뺐고, 그래서 커밋 해시가 원본과 다릅니다. 원본 해시는 orig-로 시작하는 태그로 찾을 수 있습니다. 비공개 저장소·문서로 가는 링크는 '(비공개 기록)'으로 바꿨습니다. AGENTS.md 와 docs/lessons.md 는 제출 시점 문서에서 학생 답 관련 부분만 가려 다시 넣은 것입니다.
 
 # English Grammar Workbench
 
@@ -34,7 +34,7 @@ private/paddle-env/Scripts/python.exe -m tools.dual_evidence private/e167/result
 
 **OS 전체 무통신과 완성 앱 패키징 검증은 아직 완료하지 않았습니다.** 설치형 앱·OCR 실행 연결의 미완료 범위는 [src/README.md](src/README.md), 배포 환경·DLL·모델 포함 검증의 남은 범위는 독립 실행 가능성 검토 (비공개 기록)에 기록돼 있습니다.
 
-외부 구성요소 고지는 [NOTICE](NOTICE), 오류와 방지 규칙은 개발 교훈 (비공개 기록)을 참조합니다. 문서 구성은 kordoc의 [작업 규칙](https://github.com/chrisryugj/kordoc/blob/main/AGENTS.md), [통신 범위 표](https://github.com/chrisryugj/kordoc/blob/main/SECURITY.md#outbound-network-traffic), [성능 표](https://github.com/chrisryugj/kordoc#-성능-한눈에-보기)를 참고했으며, 위 수치와 통신 설명은 이 저장소의 근거만 사용했습니다.
+외부 구성요소 고지는 [NOTICE](NOTICE), 오류와 방지 규칙은 [개발 교훈](docs/lessons.md)을 참조합니다. 문서 구성은 kordoc의 [작업 규칙](https://github.com/chrisryugj/kordoc/blob/main/AGENTS.md), [통신 범위 표](https://github.com/chrisryugj/kordoc/blob/main/SECURITY.md#outbound-network-traffic), [성능 표](https://github.com/chrisryugj/kordoc#-성능-한눈에-보기)를 참고했으며, 위 수치와 통신 설명은 이 저장소의 근거만 사용했습니다.
 
 ## 이전 상태 기록
 
